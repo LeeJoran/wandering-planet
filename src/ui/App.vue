@@ -7,7 +7,6 @@ import {
   CONSTELLATIONS,
   findConstellationStar,
   getConstellation,
-  groupedFacts,
   progressOf,
   type ConstellationStar,
   type StarEnergy,
@@ -328,10 +327,10 @@ const panelSubtitle = computed(() => {
   return `${cName ? cName + ' · ' : ''}点亮于 ${new Date(star.createdAt).toLocaleString()} · 在轨 ${formatMs(total)}`
 })
 
-// 分要点科普：合并为 ≤5 段（名字与别名/星体/亮度与位置/故事）
+// 分要点科普：统一五类卡片（名称与别名/信息/西方故事/东方故事/观测）
 const panelFacts = computed(() => {
   const cs = panelConstStar()
-  return cs ? groupedFacts(cs) : []
+  return cs ? cs.facts : []
 })
 
 // 面板分区标题：关于这颗星 / 在星星中留下的足迹

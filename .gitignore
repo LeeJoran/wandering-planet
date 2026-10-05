@@ -1,0 +1,6 @@
+node_modules/
+dist/
+
+# 产品文档（PRD/开工说明）默认不进公开仓库，需要公开时移除
+deepseek_*.md
+deepseek_*.txt

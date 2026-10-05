@@ -60,6 +60,18 @@ create table if not exists public.shared_orbits (
   base_star_energy numeric not null default 0 -- 会话开始时星的能量（幂等重算用）
 );
 
+-- 同一星系只允许一条进行中的会话（顺延切换目标星时旧的先结束）
+-- 先清掉历史遗留的多余并行会话（保留每个星系最近心跳的一条）
+with dups as (
+  select id from (
+    select id, row_number() over (partition by galaxy_id order by last_heartbeat desc) as rn
+    from public.shared_orbits where ended_at is null
+  ) t where rn > 1
+)
+update public.shared_orbits set ended_at = now() where id in (select id from dups);
+create unique index if not exists shared_orbits_one_active
+  on public.shared_orbits (galaxy_id) where ended_at is null;
+
 create table if not exists public.shared_entries (
   id uuid primary key default gen_random_uuid(),
   galaxy_id uuid not null references public.galaxies(id) on delete cascade,
@@ -203,7 +215,7 @@ begin
 end;
 $$;
 
--- 开始共赴在轨（有进行中的会话则复用）
+-- 开始共赴在轨（有进行中的会话则复用；并发开始时靠唯一索引去重）
 create or replace function public.shared_orbit_start(p_galaxy uuid, p_star uuid)
 returns uuid language plpgsql security definer as $$
 declare
@@ -215,13 +227,65 @@ begin
     insert into public.shared_orbits (galaxy_id, star_id, base_star_energy)
       values (p_galaxy, p_star,
         coalesce((select energy from public.shared_stars where id = p_star), 0))
-      returning id into sid;
+    on conflict (galaxy_id) where ended_at is null do nothing;
+    select id into sid from public.shared_orbits
+      where galaxy_id = p_galaxy and ended_at is null limit 1;
   end if;
   return sid;
 end;
 $$;
 
--- 互发表达（能量在心跳里累计）
+-- 顺延：目标星已点亮 → 结算结束旧会话，切到下一颗星开新会话。
+-- 幂等：旧会话已结束 / 对方已先顺延时，直接返回当前进行中的会话 id。
+-- 注意：会话行判断务必用 %rowtype + if found、结束语句按 p_old_session 定位。
+-- 曾实测：同逻辑的 record 变量 + if r is not null 写法在 PostgREST 调用下结算分支被整体跳过
+-- （会话不结束、返回旧会话 id，客户端死循环），此写法已用探针验证通过，勿改回。
+create or replace function public.advance_shared_orbit(p_galaxy uuid, p_old_session uuid, p_constellation text, p_star text, p_required numeric default 300)
+returns uuid language plpgsql security definer as $$
+declare
+  old public.shared_orbits%rowtype;
+  sid uuid;
+  active_id uuid;
+  new_energy numeric;
+begin
+  -- 旧会话还在进行 → 按心跳同款公式结算并结束
+  select * into old from public.shared_orbits
+    where id = p_old_session and ended_at is null
+    for update;
+  if found then
+    new_energy := greatest(
+      old.base_star_energy + old.both_seconds * 1.5 + old.solo_seconds +
+        (select coalesce(sum(public.pair_energy(e.type)), 0) from public.shared_entries e
+          where e.star_id = old.star_id and e.created_at >= old.started_at),
+      old.base_star_energy
+    );
+    update public.shared_stars
+      set energy = new_energy,
+          lit_at = coalesce(lit_at, case when new_energy >= required then now() else null end)
+      where id = old.star_id;
+    update public.shared_orbits set ended_at = now()
+      where id = p_old_session and ended_at is null;
+  end if;
+
+  -- 新目标星（幂等建星）
+  select public.ensure_shared_star(p_galaxy, p_constellation, p_star, p_required) into sid;
+
+  -- 对方已先顺延 → 复用其会话
+  select id into active_id from public.shared_orbits
+    where galaxy_id = p_galaxy and ended_at is null limit 1;
+  if active_id is not null then return active_id; end if;
+
+  insert into public.shared_orbits (galaxy_id, star_id, base_star_energy)
+    values (p_galaxy, sid, coalesce((select energy from public.shared_stars where id = sid), 0))
+  on conflict (galaxy_id) where ended_at is null do nothing;
+
+  select id into active_id from public.shared_orbits
+    where galaxy_id = p_galaxy and ended_at is null limit 1;
+  return active_id;
+end;
+$$;
+
+-- 互发表达：能量立即计入目标星（不在轨时也不丢；在轨时心跳的幂等重算会覆盖为同值）
 create or replace function public.add_shared_entry(p_galaxy uuid, p_star uuid, p_type text, p_text text default null, p_media text default null)
 returns uuid language plpgsql security definer as $$
 declare
@@ -230,6 +294,10 @@ begin
   insert into public.shared_entries (galaxy_id, star_id, author, type, text_content, media_data)
   values (p_galaxy, p_star, auth.uid(), p_type, p_text, p_media)
   returning id into eid;
+  update public.shared_stars
+    set energy = energy + public.pair_energy(p_type),
+        lit_at = coalesce(lit_at, case when energy + public.pair_energy(p_type) >= required then now() else null end)
+    where id = p_star;
   return eid;
 end;
 $$;

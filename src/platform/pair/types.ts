@@ -53,6 +53,8 @@ export interface IPairBackend {
   ensureSharedStar(galaxyId: string, constellationId: string, starId: string, required: number): Promise<string>
   /** 开始共赴在轨（starId 为数据库记录 id），返回会话 id */
   startOrbit(galaxyId: string, starId: string): Promise<string>
+  /** 顺延：目标星已点亮 → 结算旧会话并切到下一颗星，返回新会话 id（幂等，对方已顺延则返回其会话） */
+  advanceOrbit(galaxyId: string, sessionId: string, constellationId: string, starId: string, required: number): Promise<string>
   /** 心跳（约 10 秒一次）：active 表示我是否在轨；双方都离开 → 服务端结算 */
   heartbeatOrbit(sessionId: string, active: boolean): Promise<void>
   /** 互发表达：文字/语音/图片 */

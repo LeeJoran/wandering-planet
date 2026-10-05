@@ -147,6 +147,16 @@ export const pairBackend: IPairBackend = {
     return rpc<string>('shared_orbit_start', { p_galaxy: galaxyId, p_star: starId })
   },
 
+  async advanceOrbit(galaxyId: string, sessionId: string, constellationId: string, starId: string, required: number) {
+    return rpc<string>('advance_shared_orbit', {
+      p_galaxy: galaxyId,
+      p_old_session: sessionId,
+      p_constellation: constellationId,
+      p_star: starId,
+      p_required: required,
+    })
+  },
+
   async heartbeatOrbit(sessionId: string, active: boolean) {
     await rpc('shared_orbit_heartbeat', { p_session: sessionId, p_active: active })
   },

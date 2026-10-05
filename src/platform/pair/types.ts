@@ -1,9 +1,9 @@
 // 双人/共赴轨道后端接口（Supabase 实现见 ./supabase.ts；将来小程序云开发可另做实现）
 
 export interface PairStar {
-  id: string
-  seq: number
-  name: string
+  id: string // 数据库记录 id
+  constellationId: string
+  starId: string // 星座数据里的恒星 id
   energy: number
   required: number
   litAt: string | null
@@ -49,7 +49,9 @@ export interface IPairBackend {
   acceptInvite(code: string): Promise<string | null>
   listGalaxies(): Promise<PairGalaxy[]>
   loadEntries(starId: string): Promise<PairEntry[]>
-  /** 开始共赴在轨，返回会话 id */
+  /** 确保共赴星记录存在（幂等），返回数据库记录 id */
+  ensureSharedStar(galaxyId: string, constellationId: string, starId: string, required: number): Promise<string>
+  /** 开始共赴在轨（starId 为数据库记录 id），返回会话 id */
   startOrbit(galaxyId: string, starId: string): Promise<string>
   /** 心跳（约 10 秒一次）：active 表示我是否在轨；双方都离开 → 服务端结算 */
   heartbeatOrbit(sessionId: string, active: boolean): Promise<void>

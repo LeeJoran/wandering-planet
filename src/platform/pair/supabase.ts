@@ -5,7 +5,14 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { IPairBackend, PairEntry, PairGalaxy } from './types'
 
 // 数据库原始行（蛇形命名）
-type RawStarRow = { id: string; seq: number; name: string; energy: number; required: number; lit_at: string | null }
+type RawStarRow = {
+  id: string
+  constellation_id: string
+  star_id: string
+  energy: number
+  required: number
+  lit_at: string | null
+}
 
 const URL = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined
@@ -75,7 +82,7 @@ export const pairBackend: IPairBackend = {
     const out: PairGalaxy[] = []
     for (const g of gs ?? []) {
       const [{ data: stars }, { data: orbit }, { data: presence }] = await Promise.all([
-        sb.from('shared_stars').select('*').eq('galaxy_id', g.id).order('seq'),
+        sb.from('shared_stars').select('*').eq('galaxy_id', g.id),
         sb.from('shared_orbits').select('*').eq('galaxy_id', g.id).is('ended_at', null).maybeSingle(),
         sb.from('presence').select('last_seen').eq('galaxy_id', g.id).neq('user_id', uid).maybeSingle(),
       ])
@@ -89,8 +96,8 @@ export const pairBackend: IPairBackend = {
         createdAt: g.created_at,
         stars: ((stars ?? []) as RawStarRow[]).map((s) => ({
           id: s.id,
-          seq: s.seq,
-          name: s.name,
+          constellationId: s.constellation_id,
+          starId: s.star_id,
           energy: Number(s.energy),
           required: Number(s.required),
           litAt: s.lit_at ?? null,
@@ -125,6 +132,15 @@ export const pairBackend: IPairBackend = {
       media: e.media_data ?? undefined,
       createdAt: e.created_at,
     }))
+  },
+
+  async ensureSharedStar(galaxyId: string, constellationId: string, starId: string, required: number) {
+    return rpc<string>('ensure_shared_star', {
+      p_galaxy: galaxyId,
+      p_constellation: constellationId,
+      p_star: starId,
+      p_required: required,
+    })
   },
 
   async startOrbit(galaxyId: string, starId: string) {

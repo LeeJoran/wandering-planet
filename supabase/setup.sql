@@ -27,12 +27,24 @@ create table if not exists public.galaxies (
 create table if not exists public.shared_stars (
   id uuid primary key default gen_random_uuid(),
   galaxy_id uuid not null references public.galaxies(id) on delete cascade,
-  seq int not null,                           -- 点亮顺序 1..3
-  name text not null,
+  constellation_id text not null default '',  -- 星座 id（内容在前端数据里）
+  star_id text not null default '',           -- 星座内恒星 id
   energy numeric not null default 0,
-  required numeric not null default 450,
+  required numeric not null default 300,
   lit_at timestamptz
 );
+
+-- 旧版（固定三颗共赴星）→ 星座体系迁移
+alter table public.shared_stars drop column if exists seq;
+alter table public.shared_stars drop column if exists name;
+alter table public.shared_stars add column if not exists constellation_id text;
+alter table public.shared_stars add column if not exists star_id text;
+update public.shared_stars set constellation_id = '' where constellation_id is null;
+update public.shared_stars set star_id = '' where star_id is null;
+delete from public.shared_stars where constellation_id = '';
+create unique index if not exists shared_stars_uniq
+  on public.shared_stars (galaxy_id, constellation_id, star_id)
+  where constellation_id <> '';
 
 create table if not exists public.shared_orbits (
   id uuid primary key default gen_random_uuid(),
@@ -147,7 +159,7 @@ begin
 end;
 $$;
 
--- 循光而来：接受邀请 → 创建共赴星系 + 三颗共赴星（启明/长庚/比邻）
+-- 循光而来：接受邀请 → 创建共赴星系（星座内容在前端，星记录按需创建）
 create or replace function public.accept_invite(p_code text)
 returns uuid language plpgsql security definer as $$
 declare
@@ -169,14 +181,25 @@ begin
   if gid is null then
     insert into public.galaxies (member_a, member_b)
       values (inv.creator, auth.uid()) returning id into gid;
-    insert into public.shared_stars (galaxy_id, seq, name, required) values
-      (gid, 1, '启明', 450),
-      (gid, 2, '长庚', 450),
-      (gid, 3, '比邻', 450);
   end if;
 
   update public.invites set status = 'accepted', galaxy_id = gid where id = inv.id;
   return gid;
+end;
+$$;
+
+-- 确保共赴星记录存在（幂等），返回数据库 id
+create or replace function public.ensure_shared_star(p_galaxy uuid, p_constellation text, p_star text, p_required numeric default 300)
+returns uuid language plpgsql security definer as $$
+declare
+  sid uuid;
+begin
+  insert into public.shared_stars (galaxy_id, constellation_id, star_id, required)
+  values (p_galaxy, p_constellation, p_star, p_required)
+  on conflict (galaxy_id, constellation_id, star_id) where constellation_id <> ''
+    do update set galaxy_id = excluded.galaxy_id
+  returning id into sid;
+  return sid;
 end;
 $$;
 

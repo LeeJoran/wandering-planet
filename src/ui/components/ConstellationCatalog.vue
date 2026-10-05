@@ -13,6 +13,8 @@ defineProps<{
   }[]
   selectedId: string
   hint: string
+  showFreeRow?: boolean
+  foot?: string
 }>()
 const emit = defineEmits<{ select: [id: string]; close: [] }>()
 </script>
@@ -27,7 +29,12 @@ const emit = defineEmits<{ select: [id: string]; close: [] }>()
 
       <p v-if="hint" class="hint-line">{{ hint }}</p>
 
-      <button class="row" :class="{ active: selectedId === '' }" @click="emit('select', '')">
+      <button
+        v-if="showFreeRow !== false"
+        class="row"
+        :class="{ active: selectedId === '' }"
+        @click="emit('select', '')"
+      >
         <span class="symbol">✦</span>
         <span class="name">整片星空</span>
       </button>
@@ -47,7 +54,7 @@ const emit = defineEmits<{ select: [id: string]; close: [] }>()
         }}</span>
       </button>
 
-      <p class="foot">十二星座都在这里，逐颗点亮，直到虚影显现</p>
+      <p class="foot">{{ foot ?? '十二星座都在这里，逐颗点亮，直到虚影显现' }}</p>
     </div>
   </div>
 </template>

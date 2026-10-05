@@ -1,6 +1,7 @@
 <script setup lang="ts">
-// 共赴星面板：互发的表达（文字/语音/图片，标注谁发的）+ 能量进度 + 继续互发。
+// 共赴星面板：五类卡片科普 + 能量进度 + 互发的表达（文字/语音/图片，标注谁发的）+ 继续互发。
 import { computed, onUnmounted, ref } from 'vue'
+import { getPairConstellation } from '../../core/pairConstellations'
 import type { PairEntry, PairStar } from '../../platform/pair'
 import { webPhotoPicker } from '../../platform/web/photo'
 import { webRecorder } from '../../platform/web/recorder'
@@ -24,6 +25,17 @@ const error = ref('')
 
 const percent = computed(() => Math.floor((props.star.energy / props.star.required) * 100))
 const full = computed(() => props.star.litAt !== null)
+
+// 五类卡片科普（与单人同源的数据结构）
+const facts = computed(() => {
+  const cs = getPairConstellation(props.star.constellationId)?.stars.find((s) => s.id === props.star.starId)
+  return cs?.facts ?? []
+})
+
+const starName = computed(() => {
+  const cs = getPairConstellation(props.star.constellationId)?.stars.find((s) => s.id === props.star.starId)
+  return cs?.name ?? '共赴星'
+})
 
 function isMine(e: PairEntry) {
   return props.myUserId !== null && e.author === props.myUserId
@@ -72,7 +84,7 @@ onUnmounted(() => {
     <div class="panel">
       <header>
         <div>
-          <h2 class="title">{{ star.name }}</h2>
+          <h2 class="title">{{ starName }}</h2>
           <p class="meta">{{ galaxyName }} · {{ full ? '已完全点亮' : '已点亮 ' + percent + '%' }}</p>
         </div>
         <button class="close" @click="emit('close')">收起</button>
@@ -83,6 +95,16 @@ onUnmounted(() => {
           <div class="fill" :style="{ width: percent + '%' }"></div>
         </div>
       </div>
+
+      <template v-if="facts.length">
+        <p class="section-title">关于这颗星</p>
+        <div class="facts">
+          <div v-for="f in facts" :key="f.label" class="fact-row">
+            <p class="fact-label">{{ f.label }}</p>
+            <p class="fact-text">{{ f.text }}</p>
+          </div>
+        </div>
+      </template>
 
       <p class="section-title">你们留下的</p>
       <div class="entries">
@@ -186,6 +208,33 @@ header {
   font-size: 12px;
   letter-spacing: 3px;
   opacity: 0.5;
+}
+
+.facts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fact-row {
+  padding: 10px 12px;
+  background: rgba(205, 214, 232, 0.05);
+  border: 1px solid rgba(205, 214, 232, 0.12);
+  border-radius: 12px;
+}
+
+.fact-label {
+  margin: 0 0 4px;
+  font-size: 11px;
+  opacity: 0.5;
+  letter-spacing: 2px;
+}
+
+.fact-text {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.9;
+  line-height: 1.7;
 }
 
 .entries {

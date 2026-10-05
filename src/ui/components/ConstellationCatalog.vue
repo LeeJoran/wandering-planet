@@ -7,6 +7,7 @@ defineProps<{
     symbol: string
     lit: number
     total: number
+    partial: number
     remaining: number
     complete: boolean
   }[]
@@ -36,10 +37,14 @@ const emit = defineEmits<{ select: [id: string]; close: [] }>()
         <span class="symbol">{{ r.symbol }}</span>
         <span class="name">{{ r.name }}</span>
         <span class="progress">{{ r.lit }}/{{ r.total }}</span>
-        <span class="status">{{ r.complete ? '全部点亮' : '还需 ' + r.remaining + ' 次' }}</span>
+        <span class="status">{{
+          r.complete
+            ? '全部点亮'
+            : (r.partial > 0 ? '点亮中 · ' : '') + '还需约 ' + Math.max(1, Math.ceil(r.remaining / 60)) + ' 分钟'
+        }}</span>
       </button>
 
-      <p class="foot">先试点三个星座，感觉对了再扩展十二星座</p>
+      <p class="foot">十二星座都在这里，逐颗点亮，直到虚影显现</p>
     </div>
   </div>
 </template>

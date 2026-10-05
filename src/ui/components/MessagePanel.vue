@@ -1,18 +1,19 @@
 <script setup lang="ts">
 // 留言面板：叠在天空上的底部面板，星星始终可见。星/在轨会话共用：
-// 看已有的表达（文字/语音/图片），也可以继续加。
-import { onUnmounted, ref } from 'vue'
+// 看已有的表达（文字/语音/图片）、能量进度条，也可以继续加。
+import { computed, onUnmounted, ref } from 'vue'
 import type { StarEntry } from '../../core/models'
 import { webPhotoPicker } from '../../platform/web/photo'
 import { webRecorder } from '../../platform/web/recorder'
 
-defineProps<{
+const props = defineProps<{
   title: string
   subtitle?: string
   emptyHint: string
   entries: StarEntry[]
   facts?: { label: string; value: string }[]
   story?: string
+  energy?: { current: number; required: number } | null
   canAdd?: boolean
 }>()
 const emit = defineEmits<{ add: [entry: StarEntry]; close: [] }>()
@@ -21,6 +22,18 @@ const draftText = ref('')
 const recording = ref(false)
 const pendingAudio = ref<{ dataUrl: string; url: string } | null>(null)
 const error = ref('')
+
+const energyPct = computed(() => {
+  if (!props.energy) return 0
+  return Math.min(100, Math.round((props.energy.current / props.energy.required) * 100))
+})
+
+const energyText = computed(() => {
+  if (!props.energy) return ''
+  const { current, required } = props.energy
+  if (current >= required) return '已完全点亮'
+  return `还需 ${required - current} 能量（当前 ${current} / 需 ${required}）`
+})
 
 async function toggleRecord() {
   if (recording.value) {
@@ -72,12 +85,24 @@ onUnmounted(() => {
         <button class="close" @click="emit('close')">收起</button>
       </header>
 
-      <div v-if="facts && facts.length" class="facts">
-        <p v-for="f in facts" :key="f.label" class="fact">
-          <span class="fact-label">{{ f.label }}</span>{{ f.value }}
-        </p>
+      <!-- 能量进度 -->
+      <div v-if="energy" class="energy">
+        <div class="bar">
+          <div class="fill" :style="{ width: energyPct + '%' }"></div>
+        </div>
+        <p class="energy-text">{{ energyText }}</p>
       </div>
-      <p v-if="story" class="story">{{ story }}</p>
+
+      <!-- 结构化卡片：重量/位置/颜色/亮度/记录 -->
+      <div v-if="facts && facts.length" class="facts">
+        <div v-for="f in facts" :key="f.label" class="fact-card">
+          <p class="fact-label">{{ f.label }}</p>
+          <p class="fact-value">{{ f.value }}</p>
+        </div>
+      </div>
+      <div v-if="story" class="story-card">
+        <p class="story">{{ story }}</p>
+      </div>
 
       <div class="entries">
         <p v-if="entries.length === 0" class="hint">{{ emptyHint }}</p>
@@ -120,7 +145,7 @@ onUnmounted(() => {
 
 .panel {
   width: 100%;
-  max-height: 68vh;
+  max-height: 72vh;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -154,24 +179,63 @@ header {
   opacity: 0.6;
 }
 
-.facts {
+.energy {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.fact {
+.bar {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(205, 214, 232, 0.12);
+  overflow: hidden;
+}
+
+.fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #d8b06a, #ffe9b8);
+  transition: width 0.5s ease;
+}
+
+.energy-text {
   margin: 0;
-  font-size: 13px;
-  opacity: 0.85;
+  font-size: 12px;
+  opacity: 0.6;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.fact-card {
+  padding: 10px 12px;
+  background: rgba(205, 214, 232, 0.05);
+  border: 1px solid rgba(205, 214, 232, 0.12);
+  border-radius: 12px;
 }
 
 .fact-label {
-  display: inline-block;
-  min-width: 3em;
-  margin-right: 10px;
-  font-size: 12px;
+  margin: 0 0 4px;
+  font-size: 11px;
   opacity: 0.5;
+}
+
+.fact-value {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.9;
+  line-height: 1.5;
+}
+
+.story-card {
+  padding: 12px 14px;
+  background: rgba(205, 214, 232, 0.04);
+  border: 1px solid rgba(205, 214, 232, 0.12);
+  border-radius: 12px;
 }
 
 .story {

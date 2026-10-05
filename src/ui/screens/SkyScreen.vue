@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// 天空屏 = 唯一背景视角。星座区展示所选星座：暗点为未点亮，亮点+连线为已点亮（按形状顺序）。
-// 自由星（旧数据，不属于任何星座）继续散落在天空上。
+// 天空屏 = 唯一背景视角。星座区三态：未点亮（暗点）/ 点亮中（弦月态，按能量比例填充）/ 完全点亮（金色光点）。
+// 完全点亮的星按形状顺序连线；星座全部点亮后虚影淡显。
 import { computed } from 'vue'
-import type { Constellation, ConstellationStar } from '../../core/constellations'
+import type { Constellation, ConstellationStar, StarEnergy } from '../../core/constellations'
 import type { Star } from '../../core/models'
 import StarField from '../components/StarField.vue'
 import { formatMs } from '../format'
@@ -10,8 +10,10 @@ import { formatMs } from '../format'
 const props = defineProps<{
   stars: Star[]
   constellation: Constellation
-  litConstStarIds: Set<string>
-  remaining: number
+  starEnergy: Map<string, StarEnergy>
+  complete: boolean
+  remainingEnergy: number
+  targetName: string
   orbiting: boolean
   elapsedMs: number
   notice: string
@@ -23,35 +25,60 @@ const emit = defineEmits<{
   end: []
   openInput: []
   openCatalog: []
+  openConstellation: []
 }>()
 
-// 已点亮的星座星 id → 星对象 id
-const litStarIdByConst = computed(() => {
+// 星座星 id → 星记录 id（有记录的：点亮中/完全点亮，都可点开）
+const starIdByConst = computed(() => {
   const m = new Map<string, string>()
   for (const s of props.stars) if (s.constellationStarId) m.set(s.constellationStarId, s.id)
   return m
 })
 
-// 连线：按星座形状顺序串起已点亮的星（顺序点亮，所以永远是形状前缀）
-const linePoints = computed(() =>
-  props.constellation.stars
-    .filter((s) => litStarIdByConst.value.has(s.id))
-    .map((s) => `${s.x},${s.y}`)
-    .join(' '),
+// 连线：完全点亮的星按形状顺序串起来（顺序点亮，所以永远是前缀）
+const linePoints = computed(() => {
+  const pts: string[] = []
+  for (const s of props.constellation.stars) {
+    const e = props.starEnergy.get(s.id)
+    if (e && e.energy >= e.required) pts.push(`${s.x},${s.y}`)
+    else break
+  }
+  return pts.join(' ')
+})
+
+const remainingMinutes = computed(() =>
+  props.remainingEnergy > 0 ? Math.max(1, Math.ceil(props.remainingEnergy / 60)) : 0,
 )
 
 // 自由星（旧数据）
 const freeStars = computed(() => props.stars.filter((s) => !s.constellationStarId))
 
+type DotState = 'full' | 'partial' | 'unlit'
+
+function stateOf(s: ConstellationStar): DotState {
+  const e = props.starEnergy.get(s.id)
+  if (!e) return 'unlit'
+  return e.energy >= e.required ? 'full' : 'partial'
+}
+
 function tapConstStar(s: ConstellationStar) {
-  const litId = litStarIdByConst.value.get(s.id)
-  if (litId) emit('openStar', litId)
+  const starId = starIdByConst.value.get(s.id)
+  if (starId) emit('openStar', starId)
   else emit('openStarInfo', props.constellation.id, s.id)
 }
 
-// 点亮/未点亮的光点大小不同，用 calc 抵消偏移
-function dotStyle(s: ConstellationStar, lit: boolean): { left: string; top: string } {
-  const off = lit ? 4.5 : 2.5
+// 点亮/未点亮的光点大小不同，用 calc 抵消偏移；弦月态用 conic-gradient 按比例填充
+function dotStyle(s: ConstellationStar, st: DotState): Record<string, string> {
+  const e = props.starEnergy.get(s.id)
+  if (st === 'partial' && e) {
+    const pct = Math.round((e.energy / e.required) * 100)
+    return {
+      left: `calc(${s.x}% - 5px)`,
+      top: `calc(${s.y}% - 5px)`,
+      background: `conic-gradient(from 0deg, #ffd98a 0% ${pct}%, rgba(205, 214, 232, 0.35) ${pct}% 100%)`,
+    }
+  }
+  const off = st === 'full' ? 4.5 : 2.5
   return { left: `calc(${s.x}% - ${off}px)`, top: `calc(${s.y}% - ${off}px)` }
 }
 
@@ -71,17 +98,27 @@ function posFor(id: string): { left: string; top: string } {
     <StarField />
     <div class="glow" />
 
-    <button class="c-label" @click="emit('openCatalog')">
-      {{ constellation.symbol }} {{ constellation.name }} ·
-      {{ remaining > 0 ? '还需 ' + remaining + ' 次' : '全部点亮' }}
-    </button>
+    <div class="top-bar">
+      <button class="c-label" @click="emit('openCatalog')">
+        {{ constellation.symbol }} {{ constellation.name }} ·
+        {{ complete ? '全部点亮' : '还需约 ' + remainingMinutes + ' 分钟' }}
+      </button>
+      <button v-if="complete" class="c-label learn" @click="emit('openConstellation')">
+        了解{{ constellation.name }}
+      </button>
+    </div>
 
     <p v-if="!orbiting" class="phrase">{{ stars.length === 0 ? '这里还没有星' : '你的天空' }}</p>
     <div v-else class="timer-chip">{{ formatMs(elapsedMs) }}</div>
 
+    <p v-if="orbiting && targetName" class="target">正在点亮 · {{ targetName }}</p>
+
     <p v-if="notice" class="notice">{{ notice }}</p>
 
     <div class="const-area">
+      <svg v-if="complete" class="silhouette" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <g v-html="constellation.silhouette" />
+      </svg>
       <svg class="lines" viewBox="0 0 100 100" preserveAspectRatio="none">
         <polyline v-if="linePoints" :points="linePoints" />
       </svg>
@@ -89,8 +126,8 @@ function posFor(id: string): { left: string; top: string } {
         v-for="s in constellation.stars"
         :key="s.id"
         class="c-star"
-        :class="{ lit: litStarIdByConst.has(s.id) }"
-        :style="dotStyle(s, litStarIdByConst.has(s.id))"
+        :class="stateOf(s)"
+        :style="dotStyle(s, stateOf(s))"
         @click="tapConstStar(s)"
       ></button>
     </div>
@@ -125,14 +162,19 @@ function posFor(id: string): { left: string; top: string } {
 
 .notice {
   position: absolute;
-  top: 33%;
+  top: 34%;
+  left: 50%;
+  transform: translateX(-50%);
   font-size: 12px;
-  opacity: 0.6;
+  opacity: 0.75;
+  white-space: nowrap;
 }
 
 .timer-chip {
   position: absolute;
   top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
   padding: 6px 18px;
   border: 1px solid rgba(205, 214, 232, 0.2);
   border-radius: 999px;
@@ -142,10 +184,27 @@ function posFor(id: string): { left: string; top: string } {
   font-variant-numeric: tabular-nums;
 }
 
-.c-label {
+.target {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 12px;
+  opacity: 0.6;
+  white-space: nowrap;
+}
+
+.top-bar {
   position: absolute;
   top: 20px;
   left: 16px;
+  right: 16px;
+  display: flex;
+  gap: 8px;
+  z-index: 2;
+}
+
+.c-label {
   padding: 6px 12px;
   border: 1px solid rgba(205, 214, 232, 0.2);
   border-radius: 999px;
@@ -153,6 +212,12 @@ function posFor(id: string): { left: string; top: string } {
   font-size: 13px;
   letter-spacing: 1px;
   opacity: 0.85;
+  white-space: nowrap;
+}
+
+.c-label.learn {
+  border-color: rgba(255, 240, 200, 0.45);
+  color: #ffe9b8;
 }
 
 /* 星座区：居中的正方形，形状不随屏幕变形 */
@@ -163,6 +228,22 @@ function posFor(id: string): { left: string; top: string } {
   transform: translate(-50%, -52%);
   width: min(88vw, 340px);
   aspect-ratio: 1;
+}
+
+.silhouette {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  animation: fadein 2.5s ease-out both;
+}
+
+.silhouette :deep(path) {
+  fill: none;
+  stroke: rgba(190, 210, 255, 0.2);
+  stroke-width: 0.8;
+  stroke-linejoin: round;
+  stroke-linecap: round;
 }
 
 .lines {
@@ -194,7 +275,14 @@ function posFor(id: string): { left: string; top: string } {
   inset: -10px;
 }
 
-.c-star.lit {
+/* 弦月态：按能量比例填充 */
+.c-star.partial {
+  width: 10px;
+  height: 10px;
+  border: 1px solid rgba(255, 217, 138, 0.35);
+}
+
+.c-star.full {
   width: 9px;
   height: 9px;
   background: #fff6dd;
@@ -250,6 +338,15 @@ function posFor(id: string): { left: string; top: string } {
   50% {
     transform: scale(1.12);
     opacity: 0.82;
+  }
+}
+
+@keyframes fadein {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }
 </style>

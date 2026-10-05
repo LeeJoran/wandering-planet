@@ -2,7 +2,10 @@
 // 表结构与 RPC 定义见仓库 supabase/setup.sql。
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import type { IPairBackend, PairEntry, PairGalaxy, PairStar } from './types'
+import type { IPairBackend, PairEntry, PairGalaxy } from './types'
+
+// 数据库原始行（蛇形命名）
+type RawStarRow = { id: string; seq: number; name: string; energy: number; required: number; lit_at: string | null }
 
 const URL = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined
@@ -84,7 +87,7 @@ export const pairBackend: IPairBackend = {
         status: g.status as PairGalaxy['status'],
         iAmA,
         createdAt: g.created_at,
-        stars: ((stars ?? []) as PairStar[]).map((s) => ({
+        stars: ((stars ?? []) as RawStarRow[]).map((s) => ({
           id: s.id,
           seq: s.seq,
           name: s.name,

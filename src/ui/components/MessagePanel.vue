@@ -6,7 +6,15 @@ import type { StarEntry } from '../../core/models'
 import { webPhotoPicker } from '../../platform/web/photo'
 import { webRecorder } from '../../platform/web/recorder'
 
-defineProps<{ title: string; subtitle?: string; emptyHint: string; entries: StarEntry[] }>()
+defineProps<{
+  title: string
+  subtitle?: string
+  emptyHint: string
+  entries: StarEntry[]
+  facts?: { label: string; value: string }[]
+  story?: string
+  canAdd?: boolean
+}>()
 const emit = defineEmits<{ add: [entry: StarEntry]; close: [] }>()
 
 const draftText = ref('')
@@ -64,6 +72,13 @@ onUnmounted(() => {
         <button class="close" @click="emit('close')">收起</button>
       </header>
 
+      <div v-if="facts && facts.length" class="facts">
+        <p v-for="f in facts" :key="f.label" class="fact">
+          <span class="fact-label">{{ f.label }}</span>{{ f.value }}
+        </p>
+      </div>
+      <p v-if="story" class="story">{{ story }}</p>
+
       <div class="entries">
         <p v-if="entries.length === 0" class="hint">{{ emptyHint }}</p>
         <div v-for="(e, i) in entries" :key="i" class="entry">
@@ -73,7 +88,7 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div class="form">
+      <div v-if="canAdd !== false" class="form">
         <textarea v-model="draftText" rows="2" placeholder="写点什么…"></textarea>
         <button class="btn" :disabled="!draftText.trim()" @click="saveText">存下文字</button>
 
@@ -137,6 +152,33 @@ header {
 .close {
   font-size: 13px;
   opacity: 0.6;
+}
+
+.facts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fact {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+.fact-label {
+  display: inline-block;
+  min-width: 3em;
+  margin-right: 10px;
+  font-size: 12px;
+  opacity: 0.5;
+}
+
+.story {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.75;
+  line-height: 1.7;
 }
 
 .entries {

@@ -29,4 +29,6 @@ export interface Star {
   message?: StarEntry // 旧版单留言槽，读取时迁移进 entries（保留字段避免丢数据）
   entries: StarEntry[]
   orbits: OrbitRecord[] // 在轨记录
+  constellationId?: string // 所属星座（试点：白羊/狮子/天蝎）；自由星没有
+  constellationStarId?: string // 星座内恒星 id
 }

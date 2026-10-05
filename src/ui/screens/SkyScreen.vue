@@ -29,6 +29,7 @@ const emit = defineEmits<{
   openInput: []
   openCatalog: []
   openConstellation: []
+  openPair: []
 }>()
 
 // 星座星 id → 星记录 id（有记录的：点亮中/完全点亮，都可点开）
@@ -191,6 +192,7 @@ function heroStyle(h: (typeof HERO_STARS)[number]): Record<string, string> {
     </div>
     <div v-else class="idle-ctrls">
       <button class="btn ghost" @click="emit('openCatalog')">星座</button>
+      <button class="btn ghost" @click="emit('openPair')">共赴</button>
       <button class="btn light-btn" @click="emit('light')">点亮一颗星</button>
     </div>
   </div>

@@ -19,11 +19,15 @@ import { SessionRepo } from '../core/sessionRepo'
 import { newStarId, StarRepo } from '../core/starRepo'
 import { webLifecycle } from '../platform/web/lifecycle'
 import { webStorage } from '../platform/web/storage'
+import BeaconPanel from './components/BeaconPanel.vue'
 import ConstellationCatalog from './components/ConstellationCatalog.vue'
 import ConstellationPanel from './components/ConstellationPanel.vue'
 import MessagePanel from './components/MessagePanel.vue'
+import PairPanel from './components/PairPanel.vue'
 import SplashScreen from './components/SplashScreen.vue'
 import { formatMs } from './format'
+import { usePair } from './pair/usePair'
+import PairSkyScreen from './screens/PairSkyScreen.vue'
 import SkyScreen from './screens/SkyScreen.vue'
 
 const repo = new StarRepo(webStorage)
@@ -35,7 +39,35 @@ type Panel =
   | { kind: 'session' }
   | { kind: 'catalog'; hint?: boolean }
   | { kind: 'constellation' }
+  | { kind: 'pair' }
   | null
+
+const {
+  state: pairState,
+  selected: pairSelected,
+  init: pairInit,
+  refresh: pairRefresh,
+  acceptBeacon: pairAcceptBeacon,
+  enter: pairEnter,
+  leave: pairLeave,
+  setStatus: pairSetStatus,
+} = usePair()
+const beaconBusy = ref(false)
+const beaconError = ref('')
+
+async function onAcceptBeacon() {
+  if (!pairState.beaconCode) return
+  beaconBusy.value = true
+  beaconError.value = ''
+  try {
+    const gid = await pairAcceptBeacon(pairState.beaconCode)
+    if (!gid) beaconError.value = '这束光已经熄灭（邀请无效或已过期）'
+  } catch (e) {
+    beaconError.value = e instanceof Error ? e.message : '接受失败'
+  } finally {
+    beaconBusy.value = false
+  }
+}
 
 const state = reactive<{
   mode: 'idle' | 'orbiting'
@@ -131,6 +163,7 @@ webLifecycle.onVisibilityChange((hidden) => {
 // 片头结束后：结算上次未完成的在轨（提示与星空一起出现）
 const pending = sessionRepo.load()
 onMounted(() => {
+  void pairInit()
   window.setTimeout(() => {
     splashDone.value = true
     if (pending) {
@@ -250,6 +283,10 @@ function openSessionInput() {
 
 function openCatalog() {
   state.panel = { kind: 'catalog' }
+}
+
+function openPair() {
+  state.panel = { kind: 'pair' }
 }
 
 function openConstellation() {
@@ -414,7 +451,14 @@ const recapStats = computed(() => {
 
 <template>
   <SplashScreen v-if="!splashDone" />
+  <PairSkyScreen
+    v-if="pairState.view && pairSelected"
+    :galaxy="pairSelected"
+    @back="pairLeave()"
+    @changed="pairRefresh()"
+  />
   <SkyScreen
+    v-else
     :stars="state.stars"
     :constellation="selectedConstellation"
     :star-energy="energyMap"
@@ -431,6 +475,7 @@ const recapStats = computed(() => {
     @open-input="openSessionInput"
     @open-catalog="openCatalog"
     @open-constellation="openConstellation"
+    @open-pair="openPair"
   />
   <MessagePanel
     v-if="isMessagePanel"
@@ -459,5 +504,21 @@ const recapStats = computed(() => {
     :constellation="selectedConstellation"
     :stats="recapStats"
     @close="closePanel"
+  />
+  <PairPanel
+    v-if="state.panel?.kind === 'pair'"
+    :galaxies="pairState.galaxies"
+    :init-error="pairState.error"
+    @close="closePanel"
+    @enter="(id) => { pairEnter(id); closePanel() }"
+    @status="(id, st) => pairSetStatus(id, st)"
+  />
+  <BeaconPanel
+    v-if="pairState.beaconCode && !pairState.view"
+    :code="pairState.beaconCode"
+    :busy="beaconBusy"
+    :error="beaconError"
+    @accept="onAcceptBeacon"
+    @dismiss="pairState.beaconCode = null"
   />
 </template>

@@ -511,6 +511,7 @@ const recapStats = computed(() => {
     :init-error="pairState.error"
     @close="closePanel"
     @enter="(id) => { pairEnter(id); closePanel() }"
+    @accepted="(id) => { void (async () => { await pairRefresh(); pairEnter(id); closePanel() })() }"
     @status="(id, st) => pairSetStatus(id, st)"
   />
   <BeaconPanel

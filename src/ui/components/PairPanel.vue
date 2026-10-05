@@ -4,12 +4,35 @@ import { ref } from 'vue'
 import { pairBackend, type PairGalaxy } from '../../platform/pair'
 
 defineProps<{ galaxies: PairGalaxy[]; initError?: string }>()
-const emit = defineEmits<{ close: []; enter: [galaxyId: string]; status: [galaxyId: string, status: 'dimmed' | 'active' | 'deleted'] }>()
+const emit = defineEmits<{
+  close: []
+  enter: [galaxyId: string]
+  accepted: [galaxyId: string]
+  status: [galaxyId: string, status: 'dimmed' | 'active' | 'deleted']
+}>()
 
 const inviteCode = ref<string | null>(null)
+const enterCode = ref('')
 const busy = ref(false)
 const error = ref('')
+const acceptError = ref('')
 const confirmDeleteId = ref<string | null>(null)
+
+async function submitCode() {
+  const code = enterCode.value.trim().toUpperCase()
+  if (code.length !== 6) return
+  busy.value = true
+  acceptError.value = ''
+  try {
+    const gid = await pairBackend.acceptInvite(code)
+    if (!gid) acceptError.value = '这束光已经熄灭（信标码无效或已过期）'
+    else emit('accepted', gid)
+  } catch (e) {
+    acceptError.value = e instanceof Error ? e.message : '循光而来失败'
+  } finally {
+    busy.value = false
+  }
+}
 
 async function lightBeacon() {
   busy.value = true
@@ -54,23 +77,39 @@ function litCount(g: PairGalaxy): number {
 
       <p v-if="initError" class="hint error">{{ initError }}</p>
 
-      <!-- 无星系：点亮信标 -->
+      <!-- 无星系：邀请（复制链接）或接收（输入信标码） -->
       <template v-if="galaxies.length === 0">
-        <p class="intro">共赴，是与另一个人共同拥有的一片天空。点亮一座信标，等那个人循光而来。</p>
+        <p class="intro">共赴，是与另一个人共同拥有的一片天空。</p>
 
         <template v-if="!inviteCode">
           <button class="btn" :disabled="busy" @click="lightBeacon">
-            {{ busy ? '点亮中…' : '点亮信标' }}
+            {{ busy ? '点亮中…' : '点亮信标，邀请对方' }}
           </button>
         </template>
         <template v-else>
           <div class="invite-card">
             <p class="invite-code">{{ inviteCode }}</p>
-            <p class="invite-hint">把这个码或链接发给那个人</p>
             <button class="btn" @click="copyLink">复制邀请链接</button>
           </div>
-          <p class="hint">等待循光而来…对方接受后，双星会出现在你们的天空。</p>
+          <p class="hint">把链接发给对方，等待循光而来…</p>
         </template>
+
+        <div class="divider"><span>或</span></div>
+
+        <p class="sub-title">收到对方的信标码？</p>
+        <div class="code-input-row">
+          <input
+            v-model="enterCode"
+            class="code-input"
+            maxlength="6"
+            placeholder="输入 6 位信标码"
+            @input="enterCode = enterCode.toUpperCase()"
+          />
+          <button class="btn" :disabled="enterCode.trim().length !== 6 || busy" @click="submitCode">
+            {{ busy ? '循光而来…' : '循光而来' }}
+          </button>
+        </div>
+        <p v-if="acceptError" class="hint error">{{ acceptError }}</p>
       </template>
 
       <!-- 星系列表 -->
@@ -174,6 +213,54 @@ header {
   margin: 0;
   font-size: 12px;
   opacity: 0.55;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  opacity: 0.35;
+  font-size: 12px;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(205, 214, 232, 0.25);
+}
+
+.sub-title {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 2px;
+  opacity: 0.55;
+}
+
+.code-input-row {
+  display: flex;
+  gap: 10px;
+}
+
+.code-input {
+  flex: 1;
+  min-width: 0;
+  background: rgba(205, 214, 232, 0.05);
+  border: 1px solid rgba(205, 214, 232, 0.25);
+  border-radius: 999px;
+  color: inherit;
+  font: inherit;
+  font-size: 16px;
+  letter-spacing: 6px;
+  text-align: center;
+  padding: 10px 14px;
+  text-transform: uppercase;
+}
+
+.code-input::placeholder {
+  color: rgba(205, 214, 232, 0.35);
+  letter-spacing: 1px;
 }
 
 .row {

@@ -49,7 +49,10 @@ export function usePair() {
       poll = window.setInterval(() => void refresh(), 15000) // 实时订阅的兜底
       state.ready = true
     } catch (e) {
-      state.error = e instanceof Error ? e.message : '共赴服务初始化失败'
+      const msg = e instanceof Error ? e.message : '共赴服务初始化失败'
+      state.error = msg.includes('fetch') || msg.includes('网络') || msg.includes('network')
+        ? '共赴服务连接失败：网络无法访问服务器。请检查网络后重试（稍后再打开本面板）'
+        : `共赴服务初始化失败：${msg}`
       state.ready = true
     }
   }

@@ -85,7 +85,7 @@ const catalogRows = computed(() =>
       lit: p.lit,
       total: p.total,
       partial: p.partial,
-      remaining: p.remaining,
+      percent: p.percent,
       complete: p.complete,
     }
   }),
@@ -183,7 +183,8 @@ function settle(s: OrbitSession): void {
     const done = progressOf(c ?? selectedConstellation.value, energyMap.value).complete
     showNotice(done ? `${cName}的${starName}被点亮，${cName}已全部点亮` : `${cName}的${starName}被点亮`)
   } else {
-    showNotice(`已为${starName}积累 ${gain} 能量（还需 ${star.requiredEnergy - star.energy}）`)
+    // 能量规则对用户隐藏，只给感受
+    showNotice(`为${starName}添了一点光`)
   }
 }
 
@@ -311,19 +312,8 @@ const panelSubtitle = computed(() => {
   return `${cName ? cName + ' · ' : ''}点亮于 ${new Date(star.createdAt).toLocaleString()} · 在轨 ${formatMs(total)}`
 })
 
-const panelFacts = computed(() => {
-  const cs = panelConstStar()
-  if (!cs) return []
-  return [
-    { label: '重量', value: cs.mass },
-    { label: '位置', value: cs.distance },
-    { label: '颜色', value: cs.color },
-    { label: '亮度', value: cs.magnitude },
-    { label: '记录', value: cs.recorded },
-  ]
-})
-
-const panelStory = computed(() => panelConstStar()?.story ?? '')
+// 分要点科普（名字/别名/星体/亮度/位置/文化/历史…），来自星座数据
+const panelFacts = computed(() => panelConstStar()?.facts ?? [])
 
 const panelEnergy = computed<{ current: number; required: number } | null>(() => {
   const p = state.panel
@@ -394,7 +384,7 @@ const recapStats = computed(() => {
     :constellation="selectedConstellation"
     :star-energy="energyMap"
     :complete="progress.complete"
-    :remaining-energy="progress.remaining"
+    :percent="progress.percent"
     :target-name="session?.target ? (findConstellationStar(session.target.constellationId, session.target.starId)?.name ?? '') : ''"
     :orbiting="state.mode === 'orbiting'"
     :elapsed-ms="elapsedMs"
@@ -414,7 +404,6 @@ const recapStats = computed(() => {
     :empty-hint="panelEmpty"
     :entries="panelEntries"
     :facts="panelFacts"
-    :story="panelStory"
     :energy="panelEnergy"
     :can-add="panelCanAdd"
     @add="addEntry"

@@ -25,7 +25,12 @@ const emit = defineEmits<{ close: [] }>()
         <button class="close" @click="emit('close')">收起</button>
       </header>
 
-      <p class="intro">{{ constellation.intro }}</p>
+      <div class="facts">
+        <div v-for="f in constellation.facts" :key="f.label" class="fact-row">
+          <p class="fact-label">{{ f.label }}</p>
+          <p class="fact-text">{{ f.text }}</p>
+        </div>
+      </div>
 
       <div class="stats">
         <div class="stat">
@@ -98,11 +103,31 @@ header {
   opacity: 0.6;
 }
 
-.intro {
+.facts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fact-row {
+  padding: 10px 12px;
+  background: rgba(205, 214, 232, 0.05);
+  border: 1px solid rgba(205, 214, 232, 0.12);
+  border-radius: 12px;
+}
+
+.fact-label {
+  margin: 0 0 4px;
+  font-size: 11px;
+  opacity: 0.5;
+  letter-spacing: 2px;
+}
+
+.fact-text {
   margin: 0;
   font-size: 13px;
-  opacity: 0.8;
-  line-height: 1.8;
+  opacity: 0.85;
+  line-height: 1.7;
 }
 
 .stats {

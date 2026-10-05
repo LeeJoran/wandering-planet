@@ -11,8 +11,7 @@ const props = defineProps<{
   subtitle?: string
   emptyHint: string
   entries: StarEntry[]
-  facts?: { label: string; value: string }[]
-  story?: string
+  facts?: { label: string; text: string }[]
   energy?: { current: number; required: number } | null
   canAdd?: boolean
 }>()
@@ -28,11 +27,13 @@ const energyPct = computed(() => {
   return Math.min(100, Math.round((props.energy.current / props.energy.required) * 100))
 })
 
+// 能量规则对用户隐藏：只显示百分比，不显示数值
 const energyText = computed(() => {
   if (!props.energy) return ''
   const { current, required } = props.energy
   if (current >= required) return '已完全点亮'
-  return `还需 ${required - current} 能量（当前 ${current} / 需 ${required}）`
+  if (current <= 0) return '尚未点亮'
+  return `已点亮 ${Math.floor((current / required) * 100)}%`
 })
 
 async function toggleRecord() {
@@ -93,15 +94,12 @@ onUnmounted(() => {
         <p class="energy-text">{{ energyText }}</p>
       </div>
 
-      <!-- 结构化卡片：重量/位置/颜色/亮度/记录 -->
+      <!-- 分要点科普：名字/别名/星体/亮度/位置/文化/历史… -->
       <div v-if="facts && facts.length" class="facts">
-        <div v-for="f in facts" :key="f.label" class="fact-card">
+        <div v-for="f in facts" :key="f.label" class="fact-row">
           <p class="fact-label">{{ f.label }}</p>
-          <p class="fact-value">{{ f.value }}</p>
+          <p class="fact-text">{{ f.text }}</p>
         </div>
-      </div>
-      <div v-if="story" class="story-card">
-        <p class="story">{{ story }}</p>
       </div>
 
       <div class="entries">
@@ -206,12 +204,12 @@ header {
 }
 
 .facts {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
 }
 
-.fact-card {
+.fact-row {
   padding: 10px 12px;
   background: rgba(205, 214, 232, 0.05);
   border: 1px solid rgba(205, 214, 232, 0.12);
@@ -222,26 +220,13 @@ header {
   margin: 0 0 4px;
   font-size: 11px;
   opacity: 0.5;
+  letter-spacing: 2px;
 }
 
-.fact-value {
+.fact-text {
   margin: 0;
   font-size: 13px;
   opacity: 0.9;
-  line-height: 1.5;
-}
-
-.story-card {
-  padding: 12px 14px;
-  background: rgba(205, 214, 232, 0.04);
-  border: 1px solid rgba(205, 214, 232, 0.12);
-  border-radius: 12px;
-}
-
-.story {
-  margin: 0;
-  font-size: 13px;
-  opacity: 0.75;
   line-height: 1.7;
 }
 

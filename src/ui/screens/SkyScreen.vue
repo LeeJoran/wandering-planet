@@ -12,7 +12,7 @@ const props = defineProps<{
   constellation: Constellation
   starEnergy: Map<string, StarEnergy>
   complete: boolean
-  remainingEnergy: number
+  percent: number
   targetName: string
   orbiting: boolean
   elapsedMs: number
@@ -46,9 +46,12 @@ const linePoints = computed(() => {
   return pts.join(' ')
 })
 
-const remainingMinutes = computed(() =>
-  props.remainingEnergy > 0 ? Math.max(1, Math.ceil(props.remainingEnergy / 60)) : 0,
-)
+// 由 id 哈希出 0~2.5s 的闪烁错相位，让亮星此起彼伏
+function twinkleDelay(id: string): string {
+  let h = 0
+  for (const c of id) h = (h * 31 + c.charCodeAt(0)) % 9973
+  return `${(h % 25) / 10}s`
+}
 
 // 自由星（旧数据）
 const freeStars = computed(() => props.stars.filter((s) => !s.constellationStarId))
@@ -79,16 +82,21 @@ function dotStyle(s: ConstellationStar, st: DotState): Record<string, string> {
     }
   }
   const off = st === 'full' ? 4.5 : 2.5
-  return { left: `calc(${s.x}% - ${off}px)`, top: `calc(${s.y}% - ${off}px)` }
+  return {
+    left: `calc(${s.x}% - ${off}px)`,
+    top: `calc(${s.y}% - ${off}px)`,
+    ...(st === 'full' ? { animationDelay: twinkleDelay(s.id) } : {}),
+  }
 }
 
 // 自由星的散落坐标（由 id 哈希，刷新不跳动）
-function posFor(id: string): { left: string; top: string } {
+function freeStarStyle(id: string): Record<string, string> {
   let h = 0
   for (const c of id) h = (h * 31 + c.charCodeAt(0)) % 9973
   return {
     left: `${8 + (h % 76)}%`,
     top: `${14 + (Math.floor(h / 77) % 42)}%`,
+    animationDelay: twinkleDelay(id),
   }
 }
 </script>
@@ -101,7 +109,7 @@ function posFor(id: string): { left: string; top: string } {
     <div class="top-bar">
       <button class="c-label" @click="emit('openCatalog')">
         {{ constellation.symbol }} {{ constellation.name }} ·
-        {{ complete ? '全部点亮' : '还需约 ' + remainingMinutes + ' 分钟' }}
+        {{ complete ? '全部点亮' : '已点亮 ' + percent + '%' }}
       </button>
       <button v-if="complete" class="c-label learn" @click="emit('openConstellation')">
         了解{{ constellation.name }}
@@ -136,7 +144,7 @@ function posFor(id: string): { left: string; top: string } {
       v-for="s in freeStars"
       :key="s.id"
       class="star free-star"
-      :style="posFor(s.id)"
+      :style="freeStarStyle(s.id)"
       @click="emit('openStar', s.id)"
     ></button>
 
@@ -282,15 +290,15 @@ function posFor(id: string): { left: string; top: string } {
   border: 1px solid rgba(255, 217, 138, 0.35);
 }
 
+/* 完全点亮的星：明显闪烁，比背景星尘更亮眼 */
 .c-star.full {
   width: 9px;
   height: 9px;
   background: #fff6dd;
-  box-shadow: 0 0 12px 4px rgba(255, 240, 200, 0.5);
-  animation: breathe 3.2s ease-in-out infinite;
+  animation: twinkle 2.6s ease-in-out infinite;
 }
 
-/* 自由星（旧数据） */
+/* 自由星（旧数据）：同样闪烁 */
 .star {
   position: absolute;
   width: 8px;
@@ -298,8 +306,7 @@ function posFor(id: string): { left: string; top: string } {
   padding: 0;
   border-radius: 50%;
   background: #fff6dd;
-  box-shadow: 0 0 12px 4px rgba(255, 240, 200, 0.45);
-  animation: breathe 4.2s ease-in-out infinite;
+  animation: twinkle 3.2s ease-in-out infinite;
   opacity: 0.85;
 }
 
@@ -338,6 +345,18 @@ function posFor(id: string): { left: string; top: string } {
   50% {
     transform: scale(1.12);
     opacity: 0.82;
+  }
+}
+
+@keyframes twinkle {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 12px 5px rgba(255, 240, 200, 0.55);
+  }
+  50% {
+    opacity: 0.4;
+    box-shadow: 0 0 3px 1px rgba(255, 240, 200, 0.15);
   }
 }
 

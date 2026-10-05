@@ -8,7 +8,7 @@ defineProps<{
     lit: number
     total: number
     partial: number
-    remaining: number
+    percent: number
     complete: boolean
   }[]
   selectedId: string
@@ -38,9 +38,7 @@ const emit = defineEmits<{ select: [id: string]; close: [] }>()
         <span class="name">{{ r.name }}</span>
         <span class="progress">{{ r.lit }}/{{ r.total }}</span>
         <span class="status">{{
-          r.complete
-            ? '全部点亮'
-            : (r.partial > 0 ? '点亮中 · ' : '') + '还需约 ' + Math.max(1, Math.ceil(r.remaining / 60)) + ' 分钟'
+          r.complete ? '全部点亮' : (r.partial > 0 ? '点亮中 · ' : '') + '已点亮 ' + r.percent + '%'
         }}</span>
       </button>
 

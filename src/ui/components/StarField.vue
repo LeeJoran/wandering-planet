@@ -34,6 +34,16 @@ const dots = Array.from({ length: 70 }, (_, i) => ({
   inset: 0;
   overflow: hidden;
   pointer-events: none;
+  animation: drift 90s ease-in-out infinite alternate;
+}
+
+@keyframes drift {
+  from {
+    transform: translate(0, 0);
+  }
+  to {
+    transform: translate(-14px, 8px);
+  }
 }
 
 .dust {

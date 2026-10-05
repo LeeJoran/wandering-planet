@@ -12,6 +12,8 @@ const props = defineProps<{
   emptyHint: string
   entries: StarEntry[]
   facts?: { label: string; text: string }[]
+  factsTitle?: string
+  entriesTitle?: string
   energy?: { current: number; required: number } | null
   canAdd?: boolean
 }>()
@@ -95,7 +97,8 @@ onUnmounted(() => {
       </div>
 
       <!-- 分要点科普：名字/别名/星体/亮度/位置/文化/历史… -->
-      <div v-if="facts && facts.length" class="facts">
+      <div v-if="facts && facts.length" class="section">
+        <p v-if="factsTitle" class="section-title">{{ factsTitle }}</p>
         <div v-for="f in facts" :key="f.label" class="fact-row">
           <p class="fact-label">{{ f.label }}</p>
           <p class="fact-text">{{ f.text }}</p>
@@ -103,6 +106,7 @@ onUnmounted(() => {
       </div>
 
       <div class="entries">
+        <p v-if="entriesTitle" class="section-title">{{ entriesTitle }}</p>
         <p v-if="entries.length === 0" class="hint">{{ emptyHint }}</p>
         <div v-for="(e, i) in entries" :key="i" class="entry">
           <p v-if="e.type === 'text'" class="entry-text">{{ e.text }}</p>
@@ -203,10 +207,17 @@ header {
   opacity: 0.6;
 }
 
-.facts {
+.section {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.section-title {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 3px;
+  opacity: 0.5;
 }
 
 .fact-row {

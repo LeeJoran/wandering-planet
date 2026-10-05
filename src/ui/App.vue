@@ -1,12 +1,13 @@
 <script setup lang="ts">
-// 单一"天空"视角：首屏、在轨（计时以小芯片存在）、留言面板、星座目录、星座回顾都在天空上展开。
+// 单一"天空"视角：片头动画 → 整片星空（默认不选星座）→ 星座视图/在轨/留言/目录/回顾。
 // 能量系统：在轨时长 + 文字/语音/图片 → 能量 → 星从"未亮"到"弦月态"到"完全点亮"。
 // 星座全部点亮后：虚影淡显 + 提示几秒后消失 + "了解XX座"回顾按钮。
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import {
   CONSTELLATIONS,
   findConstellationStar,
   getConstellation,
+  groupedFacts,
   progressOf,
   type ConstellationStar,
   type StarEnergy,
@@ -22,6 +23,7 @@ import { webStorage } from '../platform/web/storage'
 import ConstellationCatalog from './components/ConstellationCatalog.vue'
 import ConstellationPanel from './components/ConstellationPanel.vue'
 import MessagePanel from './components/MessagePanel.vue'
+import SplashScreen from './components/SplashScreen.vue'
 import { formatMs } from './format'
 import SkyScreen from './screens/SkyScreen.vue'
 
@@ -41,15 +43,16 @@ const state = reactive<{
   stars: Star[]
   panel: Panel
   notice: string
-  selectedConstellationId: string
+  selectedConstellationId: string | null
 }>({
   mode: 'idle',
   stars: repo.list(),
   panel: null,
   notice: '',
-  selectedConstellationId: 'aries',
+  selectedConstellationId: null, // 默认整片星空，不选星座
 })
 
+const splashDone = ref(false)
 const session = ref<OrbitSession | null>(null)
 const now = ref(Date.now())
 let timer: number | null = null
@@ -58,8 +61,8 @@ let noticeTimer: number | null = null
 
 const elapsedMs = computed(() => (session.value ? now.value - session.value.startedAt : 0))
 
-const selectedConstellation = computed(
-  () => getConstellation(state.selectedConstellationId) ?? CONSTELLATIONS[0],
+const selectedConstellation = computed(() =>
+  state.selectedConstellationId ? getConstellation(state.selectedConstellationId) ?? null : null,
 )
 
 // 星座星 id → 能量状态
@@ -73,7 +76,9 @@ const energyMap = computed(() => {
   return m
 })
 
-const progress = computed(() => progressOf(selectedConstellation.value, energyMap.value))
+const progress = computed(() =>
+  selectedConstellation.value ? progressOf(selectedConstellation.value, energyMap.value) : null,
+)
 
 const catalogRows = computed(() =>
   CONSTELLATIONS.map((c) => {
@@ -124,6 +129,18 @@ webLifecycle.onVisibilityChange((hidden) => {
   if (!hidden) tick()
 })
 
+// 片头结束后：结算上次未完成的在轨（提示与星空一起出现）
+const pending = sessionRepo.load()
+onMounted(() => {
+  window.setTimeout(() => {
+    splashDone.value = true
+    if (pending) {
+      settle(pending)
+      sessionRepo.clear()
+    }
+  }, 2300)
+})
+
 // 会话能量结算到目标星
 function settle(s: OrbitSession): void {
   const record: OrbitRecord = {
@@ -136,12 +153,14 @@ function settle(s: OrbitSession): void {
   // 目标：会话自带（新版）→ 当前星座下一颗未满的星（旧版会话）→ 自由星兜底
   let target: OrbitTarget | null = s.target ?? null
   if (!target) {
-    const next = progress.value.next
-    if (next) target = { constellationId: state.selectedConstellationId, starId: next.id }
+    const next = progress.value?.next ?? null
+    if (next && state.selectedConstellationId) {
+      target = { constellationId: state.selectedConstellationId, starId: next.id }
+    }
   }
 
   if (!target) {
-    // 全亮兜底：落成自由星（无能量概念，直接点亮）
+    // 兜底：落成自由星（无能量概念，直接点亮）
     const star: Star = {
       id: newStarId(),
       createdAt: Date.now(),
@@ -180,7 +199,7 @@ function settle(s: OrbitSession): void {
   const cName = c?.name ?? ''
   const starName = cs?.name ?? '一颗星'
   if (star.energy >= star.requiredEnergy) {
-    const done = progressOf(c ?? selectedConstellation.value, energyMap.value).complete
+    const done = c ? progressOf(c, energyMap.value).complete : false
     showNotice(done ? `${cName}的${starName}被点亮，${cName}已全部点亮` : `${cName}的${starName}被点亮`)
   } else {
     // 能量规则对用户隐藏，只给感受
@@ -188,22 +207,19 @@ function settle(s: OrbitSession): void {
   }
 }
 
-// 打开页面：若上次有未完成的在轨，自动结算
-const pending = sessionRepo.load()
-if (pending) {
-  settle(pending)
-  sessionRepo.clear()
-}
-
 function start() {
-  // 所选星座已全部点亮 → 打开目录换一个（带提示）
-  if (progress.value.complete) {
+  // 未选星座 / 所选星座已全部点亮 → 打开目录换一个（带提示）
+  const p = progress.value
+  if (!selectedConstellation.value || !p || p.complete) {
     state.panel = { kind: 'catalog', hint: true }
     return
   }
-  const next = progress.value.next
+  const next = p.next
   if (!next) return
-  session.value = startOrbit(Date.now(), { constellationId: state.selectedConstellationId, starId: next.id })
+  session.value = startOrbit(Date.now(), {
+    constellationId: selectedConstellation.value.id,
+    starId: next.id,
+  })
   sessionRepo.save(session.value) // 一开始就落盘，防止刚点开始就被关
   lastSaved = Date.now()
   state.mode = 'orbiting'
@@ -242,7 +258,7 @@ function openConstellation() {
 }
 
 function selectConstellation(id: string) {
-  state.selectedConstellationId = id
+  state.selectedConstellationId = id === '' ? null : id
   state.panel = null
 }
 
@@ -312,8 +328,19 @@ const panelSubtitle = computed(() => {
   return `${cName ? cName + ' · ' : ''}点亮于 ${new Date(star.createdAt).toLocaleString()} · 在轨 ${formatMs(total)}`
 })
 
-// 分要点科普（名字/别名/星体/亮度/位置/文化/历史…），来自星座数据
-const panelFacts = computed(() => panelConstStar()?.facts ?? [])
+// 分要点科普：合并为 ≤5 段（名字与别名/星体/亮度与位置/故事）
+const panelFacts = computed(() => {
+  const cs = panelConstStar()
+  return cs ? groupedFacts(cs) : []
+})
+
+// 面板分区标题：关于这颗星 / 在星星中留下的足迹
+const panelFactsTitle = computed(() => (panelConstStar() ? '关于这颗星' : ''))
+const panelEntriesTitle = computed(() => {
+  const p = state.panel
+  if (p?.kind === 'star' || p?.kind === 'star-info') return '在星星中留下的足迹'
+  return ''
+})
 
 const panelEnergy = computed<{ current: number; required: number } | null>(() => {
   const p = state.panel
@@ -342,7 +369,7 @@ const panelEmpty = computed(() => {
   const p = state.panel
   if (p?.kind === 'session') return '还没记什么'
   if (p?.kind === 'star-info') return '这颗星还没被点亮'
-  return '这颗星还没有留言'
+  return '还没有留下足迹'
 })
 
 const panelCanAdd = computed(() => {
@@ -358,33 +385,42 @@ const panelCanAdd = computed(() => {
   return false
 })
 
-const catalogHint = computed(() =>
-  state.panel?.kind === 'catalog' && state.panel.hint ? '这个星座已全部点亮，换一个星座吧' : '',
-)
+const catalogHint = computed(() => {
+  if (state.panel?.kind !== 'catalog' || !state.panel.hint) return ''
+  return state.selectedConstellationId ? '这个星座已全部点亮，换一个星座吧' : '先选一个星座，开始点亮'
+})
 
-// 星座回顾统计
+// 星座回顾统计（含明细，面板内展开）
 const recapStats = computed(() => {
   const c = selectedConstellation.value
-  const stars = state.stars.filter((s) => s.constellationId === c.id)
+  const stars = c ? state.stars.filter((s) => s.constellationId === c.id) : []
   const orbits = stars.flatMap((s) => s.orbits)
   const entries = stars.flatMap((s) => s.entries)
   return {
-    orbitCount: orbits.length,
-    totalMs: orbits.reduce((a, o) => a + o.durationMs, 0),
-    texts: entries.filter((e) => e.type === 'text'),
-    voiceCount: entries.filter((e) => e.type === 'voice').length,
-    imageCount: entries.filter((e) => e.type === 'image').length,
+    orbits: [...orbits].sort((a, b) => b.startedAt - a.startedAt),
+    texts: entries
+      .filter((e) => e.type === 'text')
+      .sort((a, b) => b.createdAt - a.createdAt),
+    voices: entries
+      .filter((e) => e.type === 'voice' && e.audioDataUrl)
+      .map((e) => ({ audioDataUrl: e.audioDataUrl as string, createdAt: e.createdAt }))
+      .sort((a, b) => b.createdAt - a.createdAt),
+    images: entries
+      .filter((e) => e.type === 'image' && e.imageDataUrl)
+      .map((e) => ({ imageDataUrl: e.imageDataUrl as string, createdAt: e.createdAt }))
+      .sort((a, b) => b.createdAt - a.createdAt),
   }
 })
 </script>
 
 <template>
+  <SplashScreen v-if="!splashDone" />
   <SkyScreen
     :stars="state.stars"
     :constellation="selectedConstellation"
     :star-energy="energyMap"
-    :complete="progress.complete"
-    :percent="progress.percent"
+    :complete="progress?.complete ?? false"
+    :percent="progress?.percent ?? 0"
     :target-name="session?.target ? (findConstellationStar(session.target.constellationId, session.target.starId)?.name ?? '') : ''"
     :orbiting="state.mode === 'orbiting'"
     :elapsed-ms="elapsedMs"
@@ -404,6 +440,8 @@ const recapStats = computed(() => {
     :empty-hint="panelEmpty"
     :entries="panelEntries"
     :facts="panelFacts"
+    :facts-title="panelFactsTitle"
+    :entries-title="panelEntriesTitle"
     :energy="panelEnergy"
     :can-add="panelCanAdd"
     @add="addEntry"
@@ -412,13 +450,13 @@ const recapStats = computed(() => {
   <ConstellationCatalog
     v-if="state.panel?.kind === 'catalog'"
     :rows="catalogRows"
-    :selected-id="state.selectedConstellationId"
+    :selected-id="state.selectedConstellationId ?? ''"
     :hint="catalogHint"
     @select="selectConstellation"
     @close="closePanel"
   />
   <ConstellationPanel
-    v-if="state.panel?.kind === 'constellation'"
+    v-if="state.panel?.kind === 'constellation' && selectedConstellation"
     :constellation="selectedConstellation"
     :stats="recapStats"
     @close="closePanel"

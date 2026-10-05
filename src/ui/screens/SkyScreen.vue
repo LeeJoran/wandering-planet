@@ -1,15 +1,18 @@
 <script setup lang="ts">
-// 天空屏 = 唯一背景视角。星座区三态：未点亮（暗点）/ 点亮中（弦月态，按能量比例填充）/ 完全点亮（金色光点）。
-// 完全点亮的星按形状顺序连线；星座全部点亮后虚影淡显。
+// 天空屏 = 唯一背景视角。
+// 未选星座：整片星空 + 重点闪烁的亮星（比背景星尘醒目）。
+// 选中星座：星座区三态（未亮暗点/弦月态/完全点亮金点），满星连线，全部点亮后虚影淡显。
+// 流星（低频）/彗星（极低频）随机划过。
 import { computed } from 'vue'
 import type { Constellation, ConstellationStar, StarEnergy } from '../../core/constellations'
 import type { Star } from '../../core/models'
+import Meteors from '../components/Meteors.vue'
 import StarField from '../components/StarField.vue'
 import { formatMs } from '../format'
 
 const props = defineProps<{
   stars: Star[]
-  constellation: Constellation
+  constellation: Constellation | null
   starEnergy: Map<string, StarEnergy>
   complete: boolean
   percent: number
@@ -38,6 +41,7 @@ const starIdByConst = computed(() => {
 // 连线：完全点亮的星按形状顺序串起来（顺序点亮，所以永远是前缀）
 const linePoints = computed(() => {
   const pts: string[] = []
+  if (!props.constellation) return ''
   for (const s of props.constellation.stars) {
     const e = props.starEnergy.get(s.id)
     if (e && e.energy >= e.required) pts.push(`${s.x},${s.y}`)
@@ -46,12 +50,19 @@ const linePoints = computed(() => {
   return pts.join(' ')
 })
 
-// 由 id 哈希出 0~2.5s 的闪烁错相位，让亮星此起彼伏
-function twinkleDelay(id: string): string {
-  let h = 0
-  for (const c of id) h = (h * 31 + c.charCodeAt(0)) % 9973
-  return `${(h % 25) / 10}s`
-}
+// 整片星空模式：重点闪烁的亮星（固定布局，比背景星尘更大更亮）
+const HERO_STARS = [
+  { x: 18, y: 20, size: 4, delay: 0 },
+  { x: 34, y: 38, size: 5, delay: 0.7 },
+  { x: 56, y: 16, size: 3.5, delay: 1.4 },
+  { x: 72, y: 34, size: 4.5, delay: 0.3 },
+  { x: 84, y: 58, size: 3, delay: 1.1 },
+  { x: 26, y: 62, size: 3.5, delay: 1.8 },
+  { x: 48, y: 74, size: 4, delay: 0.5 },
+  { x: 68, y: 82, size: 3, delay: 1.5 },
+  { x: 12, y: 82, size: 3.5, delay: 2.1 },
+  { x: 88, y: 16, size: 3, delay: 0.9 },
+]
 
 // 自由星（旧数据）
 const freeStars = computed(() => props.stars.filter((s) => !s.constellationStarId))
@@ -67,7 +78,14 @@ function stateOf(s: ConstellationStar): DotState {
 function tapConstStar(s: ConstellationStar) {
   const starId = starIdByConst.value.get(s.id)
   if (starId) emit('openStar', starId)
-  else emit('openStarInfo', props.constellation.id, s.id)
+  else if (props.constellation) emit('openStarInfo', props.constellation.id, s.id)
+}
+
+// 由 id 哈希出 0~2.5s 的闪烁错相位，让亮星此起彼伏
+function twinkleDelay(id: string): string {
+  let h = 0
+  for (const c of id) h = (h * 31 + c.charCodeAt(0)) % 9973
+  return `${(h % 25) / 10}s`
 }
 
 // 点亮/未点亮的光点大小不同，用 calc 抵消偏移；弦月态用 conic-gradient 按比例填充
@@ -99,22 +117,58 @@ function freeStarStyle(id: string): Record<string, string> {
     animationDelay: twinkleDelay(id),
   }
 }
+
+function heroStyle(h: (typeof HERO_STARS)[number]): Record<string, string> {
+  return {
+    left: `${h.x}%`,
+    top: `${h.y}%`,
+    width: `${h.size}px`,
+    height: `${h.size}px`,
+    animationDelay: `${h.delay}s`,
+  }
+}
 </script>
 
 <template>
   <div class="screen sky">
     <StarField />
     <div class="glow" />
+    <Meteors />
 
-    <div class="top-bar">
-      <button class="c-label" @click="emit('openCatalog')">
-        {{ constellation.symbol }} {{ constellation.name }} ·
-        {{ complete ? '全部点亮' : '已点亮 ' + percent + '%' }}
-      </button>
-      <button v-if="complete" class="c-label learn" @click="emit('openConstellation')">
-        了解{{ constellation.name }}
-      </button>
-    </div>
+    <template v-if="constellation">
+      <div class="top-bar">
+        <button class="c-label" @click="emit('openCatalog')">
+          {{ constellation.symbol }} {{ constellation.name }} ·
+          {{ complete ? '全部点亮' : '已点亮 ' + percent + '%' }}
+        </button>
+        <button v-if="complete" class="c-label learn" @click="emit('openConstellation')">
+          了解{{ constellation.name }}
+        </button>
+      </div>
+
+      <div class="const-area">
+        <svg v-if="complete" class="silhouette" viewBox="0 0 100 100" preserveAspectRatio="none">
+          <g v-html="constellation.silhouette" />
+        </svg>
+        <svg class="lines" viewBox="0 0 100 100" preserveAspectRatio="none">
+          <polyline v-if="linePoints" :points="linePoints" />
+        </svg>
+        <button
+          v-for="s in constellation.stars"
+          :key="s.id"
+          class="c-star"
+          :class="stateOf(s)"
+          :style="dotStyle(s, stateOf(s))"
+          @click="tapConstStar(s)"
+        ></button>
+      </div>
+    </template>
+
+    <template v-else>
+      <!-- 整片星空：重点闪烁的亮星 + 自由星 -->
+      <button class="c-label" @click="emit('openCatalog')">✦ 整片星空</button>
+      <span v-for="(h, i) in HERO_STARS" :key="'h' + i" class="hero-star" :style="heroStyle(h)" />
+    </template>
 
     <p v-if="!orbiting" class="phrase">{{ stars.length === 0 ? '这里还没有星' : '你的天空' }}</p>
     <div v-else class="timer-chip">{{ formatMs(elapsedMs) }}</div>
@@ -122,23 +176,6 @@ function freeStarStyle(id: string): Record<string, string> {
     <p v-if="orbiting && targetName" class="target">正在点亮 · {{ targetName }}</p>
 
     <p v-if="notice" class="notice">{{ notice }}</p>
-
-    <div class="const-area">
-      <svg v-if="complete" class="silhouette" viewBox="0 0 100 100" preserveAspectRatio="none">
-        <g v-html="constellation.silhouette" />
-      </svg>
-      <svg class="lines" viewBox="0 0 100 100" preserveAspectRatio="none">
-        <polyline v-if="linePoints" :points="linePoints" />
-      </svg>
-      <button
-        v-for="s in constellation.stars"
-        :key="s.id"
-        class="c-star"
-        :class="stateOf(s)"
-        :style="dotStyle(s, stateOf(s))"
-        @click="tapConstStar(s)"
-      ></button>
-    </div>
 
     <button
       v-for="s in freeStars"
@@ -226,6 +263,14 @@ function freeStarStyle(id: string): Record<string, string> {
 .c-label.learn {
   border-color: rgba(255, 240, 200, 0.45);
   color: #ffe9b8;
+}
+
+/* 整片星空的重点亮星 */
+.hero-star {
+  position: absolute;
+  border-radius: 50%;
+  background: #fff6dd;
+  animation: twinkle 2.6s ease-in-out infinite;
 }
 
 /* 星座区：居中的正方形，形状不随屏幕变形 */

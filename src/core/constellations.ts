@@ -1259,6 +1259,31 @@ export function findConstellationStar(constellationId: string, starId: string): 
   return c?.stars.find((s) => s.id === starId) ?? null
 }
 
+// 面板展示用：合并要点，控制在 5 段以内（名字+别名 / 星体 / 亮度+位置 / 故事）
+export function groupedFacts(cs: ConstellationStar): StarFact[] {
+  let nameText = ''
+  let aliasText = ''
+  let lightText = ''
+  let distText = ''
+  let storyText = ''
+  const other: StarFact[] = []
+  for (const f of cs.facts) {
+    if (f.label === '名字') nameText = f.text
+    else if (f.label === '别名') aliasText = f.text
+    else if (f.label === '亮度') lightText = f.text
+    else if (f.label === '位置') distText = f.text
+    else if (f.label === '文化' || f.label === '故事' || f.label === '历史') {
+      storyText += (storyText ? ' ' : '') + f.text
+    } else other.push(f)
+  }
+  const out: StarFact[] = []
+  if (nameText) out.push({ label: '名字与别名', text: aliasText ? `${nameText} ${aliasText}` : nameText })
+  out.push(...other)
+  if (lightText) out.push({ label: '亮度与位置', text: distText ? `${lightText} ${distText}` : lightText })
+  if (storyText) out.push({ label: '故事', text: storyText })
+  return out
+}
+
 export interface StarEnergy {
   energy: number
   required: number

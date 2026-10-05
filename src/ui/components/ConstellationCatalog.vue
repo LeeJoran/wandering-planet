@@ -27,6 +27,11 @@ const emit = defineEmits<{ select: [id: string]; close: [] }>()
 
       <p v-if="hint" class="hint-line">{{ hint }}</p>
 
+      <button class="row" :class="{ active: selectedId === '' }" @click="emit('select', '')">
+        <span class="symbol">✦</span>
+        <span class="name">整片星空</span>
+      </button>
+
       <button
         v-for="r in rows"
         :key="r.id"

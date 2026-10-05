@@ -1,20 +1,26 @@
 <script setup lang="ts">
-// 星座回顾面板：完成点亮后，介绍星座 + 回看使用者在这里留下的一切。
+// 星座回顾面板：介绍 + 可展开的明细（点亮时间/文字/语音/照片）。
+import { ref } from 'vue'
 import type { Constellation } from '../../core/constellations'
-import type { StarEntry } from '../../core/models'
-import { formatMs } from '../format'
+import { formatDateTime, formatMs } from '../format'
 
 defineProps<{
   constellation: Constellation
   stats: {
-    orbitCount: number
-    totalMs: number
-    texts: StarEntry[]
-    voiceCount: number
-    imageCount: number
+    orbits: { startedAt: number; durationMs: number }[]
+    texts: { text?: string; createdAt: number }[]
+    voices: { audioDataUrl: string; createdAt: number }[]
+    images: { imageDataUrl: string; createdAt: number }[]
   }
 }>()
 const emit = defineEmits<{ close: [] }>()
+
+type Section = 'orbits' | 'texts' | 'voices' | 'images' | null
+const active = ref<Section>(null)
+
+function toggle(s: Exclude<Section, null>) {
+  active.value = active.value === s ? null : s
+}
 </script>
 
 <template>
@@ -33,33 +39,63 @@ const emit = defineEmits<{ close: [] }>()
       </div>
 
       <div class="stats">
-        <div class="stat">
-          <p class="stat-num">{{ stats.orbitCount }}</p>
+        <button class="stat" :class="{ on: active === 'orbits' }" @click="toggle('orbits')">
+          <p class="stat-num">{{ stats.orbits.length }}</p>
           <p class="stat-label">点亮次数</p>
-        </div>
-        <div class="stat">
-          <p class="stat-num">{{ formatMs(stats.totalMs) }}</p>
-          <p class="stat-label">总在轨时长</p>
-        </div>
-        <div class="stat">
+        </button>
+        <button class="stat" :class="{ on: active === 'texts' }" @click="toggle('texts')">
           <p class="stat-num">{{ stats.texts.length }}</p>
           <p class="stat-label">写下的文字</p>
-        </div>
-        <div class="stat">
-          <p class="stat-num">{{ stats.voiceCount }}</p>
+        </button>
+        <button class="stat" :class="{ on: active === 'voices' }" @click="toggle('voices')">
+          <p class="stat-num">{{ stats.voices.length }}</p>
           <p class="stat-label">录入的语音</p>
-        </div>
-        <div class="stat">
-          <p class="stat-num">{{ stats.imageCount }}</p>
+        </button>
+        <button class="stat" :class="{ on: active === 'images' }" @click="toggle('images')">
+          <p class="stat-num">{{ stats.images.length }}</p>
           <p class="stat-label">上传的照片</p>
+        </button>
+      </div>
+
+      <!-- 点亮明细 -->
+      <div v-if="active === 'orbits'" class="detail">
+        <p class="detail-title">每次点亮</p>
+        <p v-if="stats.orbits.length === 0" class="hint">还没有点亮记录</p>
+        <p v-for="(o, i) in stats.orbits" :key="i" class="detail-row">
+          <span>{{ formatDateTime(o.startedAt) }}</span>
+          <span class="detail-meta">在轨 {{ formatMs(o.durationMs) }}</span>
+        </p>
+      </div>
+
+      <!-- 文字明细 -->
+      <div v-if="active === 'texts'" class="detail">
+        <p class="detail-title">你写下的</p>
+        <p v-if="stats.texts.length === 0" class="hint">还没有留下文字</p>
+        <div v-for="(t, i) in stats.texts" :key="i" class="detail-card">
+          <p class="detail-text">{{ t.text }}</p>
+          <p class="detail-meta">{{ formatDateTime(t.createdAt) }}</p>
         </div>
       </div>
 
-      <div v-if="stats.texts.length" class="texts">
-        <p class="texts-title">你写下的</p>
-        <p v-for="(t, i) in stats.texts" :key="i" class="text-item">{{ t.text }}</p>
+      <!-- 语音明细 -->
+      <div v-if="active === 'voices'" class="detail">
+        <p class="detail-title">录下的语音</p>
+        <p v-if="stats.voices.length === 0" class="hint">还没有录入语音</p>
+        <div v-for="(v, i) in stats.voices" :key="i" class="detail-card">
+          <audio :src="v.audioDataUrl" controls />
+          <p class="detail-meta">{{ formatDateTime(v.createdAt) }}</p>
+        </div>
       </div>
-      <p v-else class="hint">这个星座还没有留下文字</p>
+
+      <!-- 照片明细 -->
+      <div v-if="active === 'images'" class="detail">
+        <p class="detail-title">上传的照片</p>
+        <p v-if="stats.images.length === 0" class="hint">还没有上传照片</p>
+        <div v-for="(im, i) in stats.images" :key="i" class="detail-card">
+          <img :src="im.imageDataUrl" class="detail-img" />
+          <p class="detail-meta">{{ formatDateTime(im.createdAt) }}</p>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -75,7 +111,7 @@ const emit = defineEmits<{ close: [] }>()
 
 .panel {
   width: 100%;
-  max-height: 72vh;
+  max-height: 78vh;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -146,6 +182,10 @@ header {
   text-align: center;
 }
 
+.stat.on {
+  border-color: rgba(255, 240, 200, 0.5);
+}
+
 .stat-num {
   margin: 0;
   font-size: 20px;
@@ -159,26 +199,58 @@ header {
   opacity: 0.55;
 }
 
-.texts-title {
-  margin: 0 0 6px;
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.detail-title {
+  margin: 2px 0;
   font-size: 12px;
+  letter-spacing: 3px;
   opacity: 0.5;
 }
 
-.text-item {
+.detail-row {
   margin: 0;
   padding: 10px 12px;
   background: rgba(205, 214, 232, 0.04);
   border: 1px solid rgba(205, 214, 232, 0.1);
   border-radius: 10px;
   font-size: 13px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.detail-card {
+  padding: 10px 12px;
+  background: rgba(205, 214, 232, 0.04);
+  border: 1px solid rgba(205, 214, 232, 0.1);
+  border-radius: 10px;
+}
+
+.detail-text {
+  margin: 0;
+  font-size: 13px;
   opacity: 0.85;
   line-height: 1.6;
 }
 
-.texts {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.detail-meta {
+  margin: 6px 0 0;
+  font-size: 11px;
+  opacity: 0.45;
+}
+
+.detail-img {
+  max-width: 100%;
+  border-radius: 8px;
+  display: block;
+}
+
+audio {
+  width: 100%;
 }
 </style>

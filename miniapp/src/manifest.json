@@ -1,0 +1,33 @@
+{
+  "name": "流浪星球",
+  "appid": "",
+  "description": "把一起度过的时间变成看得见的星",
+  "versionName": "1.0.0",
+  "versionCode": "100",
+  "transformPx": false,
+  "app-plus": {
+    "usingComponents": true,
+    "nvueStyleCompiler": "uni-app",
+    "compilerVersion": 3
+  },
+  "quickapp": {},
+  "mp-weixin": {
+    "appid": "",
+    "setting": {
+      "urlCheck": false,
+      "es6": true,
+      "minified": true
+    },
+    "usingComponents": true,
+    "requiredPrivateInfos": ["getRecorderManager", "chooseMedia"],
+    "permission": {
+      "scope.record": {
+        "desc": "用于在星星里留下你的声音"
+      }
+    }
+  },
+  "uniStatistics": {
+    "enable": false
+  },
+  "vueVersion": "3"
+}

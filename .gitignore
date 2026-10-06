@@ -7,3 +7,7 @@ deepseek_*.txt
 
 # 本地环境配置
 .env
+
+# 临时 E2E/探针脚本
+smoke.mjs
+probe*.mjs

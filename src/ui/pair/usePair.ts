@@ -44,6 +44,11 @@ export function usePair() {
       await pairBackend.init()
       const m = location.hash.match(/join=([A-Za-z0-9]{6})/)
       if (m) state.beaconCode = m[1].toUpperCase()
+      // 应用已开着时再打开邀请链接（hash 变化不重载页面）：同样弹出信标
+      window.addEventListener('hashchange', () => {
+        const hm = location.hash.match(/join=([A-Za-z0-9]{6})/)
+        if (hm && !state.view) state.beaconCode = hm[1].toUpperCase()
+      })
       await refresh()
       unsubscribe = pairBackend.subscribe(scheduleRefresh)
       poll = window.setInterval(() => void refresh(), 15000) // 实时订阅的兜底
@@ -67,8 +72,8 @@ export function usePair() {
     return pairBackend.createInvite()
   }
 
-  async function acceptBeacon(code: string): Promise<string | null> {
-    const gid = await pairBackend.acceptInvite(code)
+  async function acceptBeacon(code: string, nickname = ''): Promise<string | null> {
+    const gid = await pairBackend.acceptInvite(code, nickname)
     if (gid) {
       location.hash = ''
       state.beaconCode = null

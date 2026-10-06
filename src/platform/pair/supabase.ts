@@ -1,8 +1,8 @@
-// 双人后端的 Supabase 实现：匿名登录 + RPC + 实时订阅。
+// 双人/多人共赴后端的 Supabase 实现：匿名登录 + RPC + 实时订阅。
 // 表结构与 RPC 定义见仓库 supabase/setup.sql。
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import type { IPairBackend, PairEntry, PairGalaxy } from './types'
+import type { IPairBackend, PairEntry, PairGalaxy, PairMember } from './types'
 
 // 数据库原始行（蛇形命名）
 type RawStarRow = {
@@ -12,6 +12,19 @@ type RawStarRow = {
   energy: number
   required: number
   lit_at: string | null
+}
+
+type RawMemberRow = {
+  galaxy_id: string
+  user_id: string
+  nickname: string
+  joined_at: string
+}
+
+type RawPresenceRow = {
+  user_id: string
+  galaxy_id: string | null
+  last_seen: string
 }
 
 const URL = import.meta.env.VITE_SUPABASE_URL as string | undefined
@@ -49,7 +62,7 @@ export const pairBackend: IPairBackend = {
       if (error) throw error
     }
     uid = (await sb.auth.getSession()).data.session?.user.id ?? null
-    // 双方都离线 90 秒以上的会话，由这次访问结算
+    // 全员离线 90 秒以上的会话，由这次访问结算
     await rpc('settle_stale_orbits').catch(() => {})
     if (!presenceTimer) {
       presenceTimer = window.setInterval(() => {
@@ -62,38 +75,54 @@ export const pairBackend: IPairBackend = {
     return uid
   },
 
-  async createInvite() {
-    return rpc<string>('create_invite')
+  async createInvite(capacity = 2, galaxyId = null, creatorNickname = '') {
+    return rpc<string>('create_invite', {
+      p_capacity: capacity,
+      p_galaxy: galaxyId,
+      p_nickname: creatorNickname,
+    })
   },
 
-  async acceptInvite(code: string) {
-    return rpc<string | null>('accept_invite', { p_code: code })
+  async acceptInvite(code: string, nickname = '') {
+    return rpc<string | null>('accept_invite', { p_code: code, p_nickname: nickname })
   },
 
   async listGalaxies(): Promise<PairGalaxy[]> {
     const sb = getClient()
-    const { data: gs, error } = await sb
-      .from('galaxies')
-      .select('*')
-      .or(`member_a.eq.${uid},member_b.eq.${uid}`)
-      .order('created_at')
+    const { data: gs, error } = await sb.from('galaxies').select('*').order('created_at')
     if (error) throw error
+    const ids = (gs ?? []).map((g) => g.id)
+    if (!ids.length) return []
+
+    const [{ data: members }, { data: presences }] = await Promise.all([
+      sb.from('galaxy_members').select('galaxy_id,user_id,nickname,joined_at').in('galaxy_id', ids),
+      sb.from('presence').select('user_id,galaxy_id,last_seen').in('galaxy_id', ids),
+    ])
 
     const out: PairGalaxy[] = []
     for (const g of gs ?? []) {
-      const [{ data: stars }, { data: orbit }, { data: presence }] = await Promise.all([
+      const [{ data: stars }, { data: orbit }] = await Promise.all([
         sb.from('shared_stars').select('*').eq('galaxy_id', g.id),
         sb.from('shared_orbits').select('*').eq('galaxy_id', g.id).is('ended_at', null).maybeSingle(),
-        sb.from('presence').select('last_seen').eq('galaxy_id', g.id).neq('user_id', uid).maybeSingle(),
       ])
-      const iAmA = g.member_a === uid
-      const partnerActive = orbit ? (iAmA ? orbit.b_active : orbit.a_active) : false
-      const online = presence?.last_seen ? Date.now() - new Date(presence.last_seen).getTime() < 20000 : false
+      const gMembers: PairMember[] = ((members ?? []) as RawMemberRow[])
+        .filter((m) => m.galaxy_id === g.id)
+        .sort((a, b) => new Date(a.joined_at).getTime() - new Date(b.joined_at).getTime())
+        .map((m) => ({ userId: m.user_id, nickname: m.nickname ?? '', joinedAt: m.joined_at }))
+      const onlineMembers = ((presences ?? []) as RawPresenceRow[])
+        .filter(
+          (p) =>
+            p.galaxy_id === g.id &&
+            p.user_id !== uid &&
+            Date.now() - new Date(p.last_seen).getTime() < 20000,
+        )
+        .map((p) => p.user_id)
       out.push({
         id: g.id,
         status: g.status as PairGalaxy['status'],
-        iAmA,
+        capacity: Number(g.capacity ?? 2),
         createdAt: g.created_at,
+        members: gMembers,
         stars: ((stars ?? []) as RawStarRow[]).map((s) => ({
           id: s.id,
           constellationId: s.constellation_id,
@@ -108,12 +137,10 @@ export const pairBackend: IPairBackend = {
               galaxyId: orbit.galaxy_id,
               starId: orbit.star_id,
               startedAt: orbit.started_at,
-              aActive: orbit.a_active,
-              bActive: orbit.b_active,
+              activeMembers: (orbit.active_members ?? []) as string[],
             }
           : null,
-        partnerOnline: online,
-        partnerInOrbit: partnerActive,
+        onlineMembers,
       })
     }
     return out
@@ -169,6 +196,10 @@ export const pairBackend: IPairBackend = {
     await rpc('set_galaxy_status', { p_galaxy: galaxyId, p_status: status })
   },
 
+  async setGalaxyCapacity(galaxyId: string, capacity: number) {
+    await rpc('set_galaxy_capacity', { p_galaxy: galaxyId, p_capacity: capacity })
+  },
+
   presenceHeartbeat(galaxyId: string | null) {
     currentGalaxy = galaxyId
     rpc('heartbeat_presence', { p_galaxy: galaxyId }).catch(() => {})
@@ -177,7 +208,7 @@ export const pairBackend: IPairBackend = {
   subscribe(cb: () => void) {
     const sb = getClient()
     const channel = sb.channel('pair-changes')
-    for (const table of ['shared_orbits', 'shared_entries', 'shared_stars', 'galaxies', 'invites'] as const) {
+    for (const table of ['shared_orbits', 'shared_entries', 'shared_stars', 'galaxies', 'galaxy_members', 'invites'] as const) {
       channel.on('postgres_changes', { event: '*', schema: 'public', table }, () => cb())
     }
     channel.subscribe()

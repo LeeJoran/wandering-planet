@@ -2,7 +2,7 @@
 // 整座星座点亮时的全屏庆祝弹层：祝贺文案 + 官方星图（星点连线 + 虚影），约 6 秒自动收起、点击任意处收起。
 import type { Constellation } from '../../core/constellations'
 
-defineProps<{ constellation: Constellation }>()
+defineProps<{ constellation: Constellation; who: string }>()
 const emit = defineEmits<{ close: [] }>()
 </script>
 
@@ -11,7 +11,7 @@ const emit = defineEmits<{ close: [] }>()
     <div class="glow" />
     <p class="symbol">{{ constellation.symbol }}</p>
     <h2 class="name">{{ constellation.name }}</h2>
-    <p class="msg">祝贺双方共同点亮了{{ constellation.name }}</p>
+    <p class="msg">{{ who === '双方' ? '祝贺双方' : '祝贺大家' }}共同点亮了{{ constellation.name }}</p>
 
     <svg class="figure" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
       <g v-html="constellation.silhouette" />

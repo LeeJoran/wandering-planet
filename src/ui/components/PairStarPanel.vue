@@ -2,7 +2,7 @@
 // 共赴星面板：五类卡片科普 + 能量进度 + 互发的表达（文字/语音/图片，标注谁发的）+ 继续互发。
 import { computed, onUnmounted, ref } from 'vue'
 import { getPairConstellation } from '../../core/pairConstellations'
-import type { PairEntry, PairStar } from '../../platform/pair'
+import type { PairEntry, PairMember, PairStar } from '../../platform/pair'
 import { webPhotoPicker } from '../../platform/web/photo'
 import { webRecorder } from '../../platform/web/recorder'
 
@@ -11,6 +11,7 @@ const props = defineProps<{
   galaxyName: string
   entries: PairEntry[]
   myUserId: string | null
+  members: PairMember[] // 按加入顺序
   canAdd: boolean // 星系 active 才可互发
 }>()
 const emit = defineEmits<{
@@ -37,8 +38,19 @@ const starName = computed(() => {
   return cs?.name ?? '共赴星'
 })
 
+const CN_NUM = ['一', '二', '三', '四', '五', '六', '七', '八']
+
 function isMine(e: PairEntry) {
   return props.myUserId !== null && e.author === props.myUserId
+}
+
+// 署名：2 人 = 我/对方；3+ = 我/自取称呼（空则按加入顺序叫成员N）
+function authorLabel(e: PairEntry): string {
+  if (isMine(e)) return '我'
+  const idx = props.members.findIndex((m) => m.userId === e.author)
+  if (props.members.length <= 2) return '对方'
+  const m = props.members[idx]
+  return m?.nickname || `成员${CN_NUM[idx] ?? idx + 1}`
 }
 
 async function toggleRecord() {
@@ -110,7 +122,7 @@ onUnmounted(() => {
       <div class="entries">
         <p v-if="entries.length === 0" class="hint">还没有留下什么</p>
         <div v-for="e in entries" :key="e.id" class="entry" :class="{ mine: isMine(e) }">
-          <p class="author">{{ isMine(e) ? '我' : '对方' }}</p>
+          <p class="author">{{ authorLabel(e) }}</p>
           <p v-if="e.type === 'text'" class="entry-text">{{ e.text }}</p>
           <audio v-else-if="e.type === 'voice' && e.media" :src="e.media" controls />
           <img v-else-if="e.type === 'image' && e.media" :src="e.media" class="entry-img" />

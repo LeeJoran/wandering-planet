@@ -1,7 +1,10 @@
 <script setup lang="ts">
 // 信标：被邀请方打开链接时看到的那束光。
+import { ref } from 'vue'
+
 defineProps<{ code: string; busy: boolean; error: string }>()
-const emit = defineEmits<{ accept: []; dismiss: [] }>()
+const emit = defineEmits<{ accept: [nickname: string]; dismiss: [] }>()
+const nickname = ref('')
 </script>
 
 <template>
@@ -13,7 +16,8 @@ const emit = defineEmits<{ accept: []; dismiss: [] }>()
       <h2 class="title">远处有一束光，正朝你亮起</h2>
       <p class="intro">有人为你点亮了一座信标，想与你共赴一片天空。循光而来，双星将在你们两人的天空同时亮起。</p>
       <p class="code">信标 · {{ code }}</p>
-      <button class="btn" :disabled="busy" @click="emit('accept')">
+      <input v-model="nickname" class="nick" maxlength="8" placeholder="给自己取个称呼（可留空）" />
+      <button class="btn" :disabled="busy" @click="emit('accept', nickname)">
         {{ busy ? '循光而来…' : '循光而来' }}
       </button>
       <button class="link-btn" @click="emit('dismiss')">稍后再说</button>
@@ -94,6 +98,24 @@ const emit = defineEmits<{ accept: []; dismiss: [] }>()
   letter-spacing: 3px;
   opacity: 0.5;
   font-variant-numeric: tabular-nums;
+}
+
+.nick {
+  width: 220px;
+  background: rgba(205, 214, 232, 0.05);
+  border: 1px solid rgba(205, 214, 232, 0.25);
+  border-radius: 999px;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  letter-spacing: 2px;
+  text-align: center;
+  padding: 10px 14px;
+}
+
+.nick::placeholder {
+  color: rgba(205, 214, 232, 0.35);
+  letter-spacing: 1px;
 }
 
 .link-btn {

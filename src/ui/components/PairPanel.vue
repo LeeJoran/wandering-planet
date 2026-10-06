@@ -1,44 +1,45 @@
 <script setup lang="ts">
-// 共赴面板：没有星系时"点亮信标"邀请；有星系时列表 + 管理（黯淡/复明/彻底删除）。
-import { ref } from 'vue'
+// 共赴面板：星系列表（可多段，每段独立删除）+ 点亮信标（选人数/目标/称呼）+ 循光而来（输入码+称呼）。
+// 黯淡/复明与人数切换在共赴天空内部的成员面板里做。
+import { computed, ref } from 'vue'
 import { pairBackend, type PairGalaxy } from '../../platform/pair'
 
-defineProps<{ galaxies: PairGalaxy[]; initError?: string }>()
+const { galaxies, initError } = defineProps<{ galaxies: PairGalaxy[]; initError?: string }>()
 const emit = defineEmits<{
   close: []
   enter: [galaxyId: string]
   accepted: [galaxyId: string]
-  status: [galaxyId: string, status: 'dimmed' | 'active' | 'deleted']
+  status: [galaxyId: string, status: 'deleted']
 }>()
 
 const inviteCode = ref<string | null>(null)
+const beaconOpen = ref(false)
+const capacity = ref(2)
+const targetId = ref<string | null>(null) // null = 开启新共赴；否则 = 邀请加入该星系
+const myNickname = ref('')
 const enterCode = ref('')
+const enterNickname = ref('')
 const busy = ref(false)
 const error = ref('')
 const acceptError = ref('')
 const confirmDeleteId = ref<string | null>(null)
 
-async function submitCode() {
-  const code = enterCode.value.trim().toUpperCase()
-  if (code.length !== 6) return
-  busy.value = true
-  acceptError.value = ''
-  try {
-    const gid = await pairBackend.acceptInvite(code)
-    if (!gid) acceptError.value = '这束光已经熄灭（信标码无效或已过期）'
-    else emit('accepted', gid)
-  } catch (e) {
-    acceptError.value = e instanceof Error ? e.message : '循光而来失败'
-  } finally {
-    busy.value = false
-  }
+// 有位置可加入的星系（作为信标目标候选）
+const joinable = computed(() => galaxies.filter((g) => g.members.length < g.capacity))
+
+const CN_NUM = ['一', '二', '三', '四', '五', '六', '七', '八']
+
+function galaxyName(index: number): string {
+  return `共赴星系 · ${CN_NUM[index] ?? index + 1}`
 }
 
 async function lightBeacon() {
   busy.value = true
   error.value = ''
   try {
-    inviteCode.value = await pairBackend.createInvite()
+    const code = await pairBackend.createInvite(capacity.value, targetId.value, myNickname.value.trim())
+    inviteCode.value = code
+    beaconOpen.value = false
   } catch (e) {
     error.value = e instanceof Error ? e.message : '信标创建失败'
   } finally {
@@ -52,7 +53,6 @@ async function copyLink() {
   try {
     await navigator.clipboard.writeText(link)
   } catch {
-    // 剪贴板失败：选中文本让用户手动复制
     const el = document.createElement('textarea')
     el.value = link
     document.body.appendChild(el)
@@ -62,8 +62,20 @@ async function copyLink() {
   }
 }
 
-function litCount(g: PairGalaxy): number {
-  return g.stars.filter((s) => s.litAt).length
+async function submitCode() {
+  const code = enterCode.value.trim().toUpperCase()
+  if (code.length !== 6) return
+  busy.value = true
+  acceptError.value = ''
+  try {
+    const gid = await pairBackend.acceptInvite(code, enterNickname.value.trim())
+    if (!gid) acceptError.value = '这束光已经熄灭（信标码无效或已过期）'
+    else emit('accepted', gid)
+  } catch (e) {
+    acceptError.value = e instanceof Error ? e.message : '循光而来失败'
+  } finally {
+    busy.value = false
+  }
 }
 </script>
 
@@ -77,69 +89,117 @@ function litCount(g: PairGalaxy): number {
 
       <p v-if="initError" class="hint error">{{ initError }}</p>
 
-      <!-- 无星系：邀请（复制链接）或接收（输入信标码） -->
-      <template v-if="galaxies.length === 0">
-        <p class="intro">共赴，是与另一个人共同拥有的一片天空。</p>
-
-        <template v-if="!inviteCode">
-          <button class="btn" :disabled="busy" @click="lightBeacon">
-            {{ busy ? '点亮中…' : '点亮信标，邀请对方' }}
-          </button>
-        </template>
-        <template v-else>
-          <div class="invite-card">
-            <p class="invite-code">{{ inviteCode }}</p>
-            <button class="btn" @click="copyLink">复制邀请链接</button>
-          </div>
-          <p class="hint">把链接发给对方，等待循光而来…</p>
-        </template>
-
-        <div class="divider"><span>或</span></div>
-
-        <p class="sub-title">收到对方的信标码？</p>
-        <div class="code-input-row">
-          <input
-            v-model="enterCode"
-            class="code-input"
-            maxlength="6"
-            placeholder="输入 6 位信标码"
-            @input="enterCode = enterCode.toUpperCase()"
-          />
-          <button class="btn" :disabled="enterCode.trim().length !== 6 || busy" @click="submitCode">
-            {{ busy ? '循光而来…' : '循光而来' }}
-          </button>
-        </div>
-        <p v-if="acceptError" class="hint error">{{ acceptError }}</p>
-      </template>
-
-      <!-- 星系列表 -->
-      <template v-else>
-        <button v-for="g in galaxies" :key="g.id" class="row" @click="emit('enter', g.id)">
-          <span class="dot" :class="{ on: g.partnerOnline }"></span>
-          <span class="row-name">{{ g.status === 'dimmed' ? '黯淡的' : '' }}共赴星系</span>
-          <span class="row-progress">{{ litCount(g) }}/{{ g.stars.length }}</span>
-          <span class="row-status">{{ g.partnerOnline ? '对方在线' : g.status === 'dimmed' ? '已黯淡' : '对方不在' }}</span>
+      <!-- 星系列表：每段一个删除图标按钮，点击行进入查看 -->
+      <template v-if="galaxies.length">
+        <button
+          v-for="(g, i) in galaxies"
+          :key="g.id"
+          class="row"
+          @click="emit('enter', g.id)"
+        >
+          <span class="dot" :class="{ on: g.onlineMembers.length > 0 }"></span>
+          <span class="row-name">{{ g.status === 'dimmed' ? '黯淡的' : '' }}{{ galaxyName(i) }}</span>
+          <span class="row-status">
+            {{ g.members.length }}/{{ g.capacity }} 人 ·
+            {{ g.onlineMembers.length > 0 ? g.onlineMembers.length + ' 人在线' : g.status === 'dimmed' ? '已黯淡' : '无人同行' }}
+          </span>
         </button>
 
-        <div class="manage">
-          <button class="btn ghost" @click="lightBeacon">再点一座信标</button>
+        <!-- 每段共赴独立的删除图标 -->
+        <div class="del-list">
+          <template v-for="(g, i) in galaxies" :key="'del' + g.id">
+            <template v-if="confirmDeleteId === g.id">
+              <p class="warn">彻底删除「{{ galaxyName(i) }}」？这段共赴的记录将不复存在。</p>
+              <div class="confirm-row">
+                <button class="btn danger" @click="emit('status', g.id, 'deleted'); confirmDeleteId = null">确定彻底删除</button>
+                <button class="link-btn" @click="confirmDeleteId = null">取消</button>
+              </div>
+            </template>
+            <button v-else class="del-btn" title="删除这段共赴" @click="confirmDeleteId = g.id">✕</button>
+          </template>
         </div>
       </template>
 
-      <!-- 管理：黯淡/复明/彻底删除（藏深） -->
-      <div v-if="galaxies.length" class="manage-list">
-        <template v-for="g in galaxies" :key="'m' + g.id">
-          <template v-if="confirmDeleteId === g.id">
-            <p class="hint warn">彻底删除后，你们共赴的记录将不复存在。确定？</p>
-            <button class="btn danger" @click="emit('status', g.id, 'deleted'); confirmDeleteId = null">确定彻底删除</button>
+      <p v-if="galaxies.length === 0" class="intro">共赴，是与另一个人共同拥有的一片天空。</p>
+
+      <!-- 点亮信标：选人数、选目标、取称呼；邀请码常驻可见（多段共赴随时可开） -->
+      <template v-if="inviteCode">
+        <div class="invite-card">
+          <p class="invite-code">{{ inviteCode }}</p>
+          <button class="btn" @click="copyLink">复制邀请链接</button>
+        </div>
+        <p class="hint">把链接发给对方，等待循光而来…（你已有的共赴不受影响）</p>
+        <button class="link-btn" @click="inviteCode = null">收起信标</button>
+      </template>
+
+      <template v-else>
+        <button v-if="!beaconOpen" class="btn ghost" @click="beaconOpen = true">点亮信标，邀请新朋友</button>
+
+        <div v-else class="beacon-form">
+          <p class="sub-title">这片星空，几个人共赴？</p>
+          <div class="seg">
+            <button
+              v-for="n in [2, 3, 4, 5]"
+              :key="n"
+              class="seg-btn"
+              :class="{ on: capacity === n }"
+              @click="capacity = n"
+            >
+              {{ n }}人
+            </button>
+          </div>
+
+          <template v-if="joinable.length">
+            <p class="sub-title">信标指向哪里？</p>
+            <button class="radio-row" :class="{ on: targetId === null }" @click="targetId = null">
+              <span class="radio"></span>开启一段新的共赴
+            </button>
+            <button
+              v-for="g in joinable"
+              :key="g.id"
+              class="radio-row"
+              :class="{ on: targetId === g.id }"
+              @click="targetId = g.id"
+            >
+              <span class="radio"></span>邀请加入「{{ galaxyName(galaxies.indexOf(g)) }}」（{{ g.members.length }}/{{ g.capacity }} 人）
+            </button>
           </template>
-          <template v-else>
-            <button v-if="g.status === 'active'" class="link-btn" @click="emit('status', g.id, 'dimmed')">移除这段共赴（黯淡）</button>
-            <button v-else class="link-btn" @click="emit('status', g.id, 'active')">复明</button>
-            <button class="link-btn dim" @click="confirmDeleteId = g.id">…</button>
+
+          <template v-if="capacity >= 3">
+            <p class="sub-title">给自己取个称呼（同行的人会看到）</p>
+            <input v-model="myNickname" class="code-input" maxlength="8" placeholder="如：小月" />
           </template>
-        </template>
+
+          <button class="btn" :disabled="busy" @click="lightBeacon">
+            {{ busy ? '点亮中…' : '点亮信标' }}
+          </button>
+          <p v-if="error" class="hint error">{{ error }}</p>
+        </div>
+      </template>
+
+      <div class="divider"><span>或</span></div>
+
+      <!-- 循光而来：输入码 + 自取称呼 -->
+      <p class="sub-title">收到对方的信标码？</p>
+      <div class="code-input-row">
+        <input
+          v-model="enterCode"
+          class="code-input"
+          maxlength="6"
+          placeholder="输入 6 位信标码"
+          @input="enterCode = enterCode.toUpperCase()"
+        />
+        <button class="btn" :disabled="enterCode.trim().length !== 6 || busy" @click="submitCode">
+          {{ busy ? '循光而来…' : '循光而来' }}
+        </button>
       </div>
+      <input
+        v-model="enterNickname"
+        class="code-input"
+        maxlength="8"
+        placeholder="给自己取个称呼（可留空，3 人以上共赴会用到）"
+      />
+      <p v-if="acceptError" class="hint error">{{ acceptError }}</p>
     </div>
   </div>
 </template>
@@ -155,7 +215,7 @@ function litCount(g: PairGalaxy): number {
 
 .panel {
   width: 100%;
-  max-height: 72vh;
+  max-height: 78vh;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -190,79 +250,6 @@ header {
   line-height: 1.8;
 }
 
-.invite-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 18px;
-  background: rgba(205, 214, 232, 0.05);
-  border: 1px solid rgba(255, 240, 200, 0.35);
-  border-radius: 14px;
-}
-
-.invite-code {
-  margin: 0;
-  font-size: 30px;
-  letter-spacing: 8px;
-  color: #ffe9b8;
-  font-variant-numeric: tabular-nums;
-}
-
-.invite-hint {
-  margin: 0;
-  font-size: 12px;
-  opacity: 0.55;
-}
-
-.divider {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  opacity: 0.35;
-  font-size: 12px;
-}
-
-.divider::before,
-.divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: rgba(205, 214, 232, 0.25);
-}
-
-.sub-title {
-  margin: 0;
-  font-size: 12px;
-  letter-spacing: 2px;
-  opacity: 0.55;
-}
-
-.code-input-row {
-  display: flex;
-  gap: 10px;
-}
-
-.code-input {
-  flex: 1;
-  min-width: 0;
-  background: rgba(205, 214, 232, 0.05);
-  border: 1px solid rgba(205, 214, 232, 0.25);
-  border-radius: 999px;
-  color: inherit;
-  font: inherit;
-  font-size: 16px;
-  letter-spacing: 6px;
-  text-align: center;
-  padding: 10px 14px;
-  text-transform: uppercase;
-}
-
-.code-input::placeholder {
-  color: rgba(205, 214, 232, 0.35);
-  letter-spacing: 1px;
-}
-
 .row {
   display: flex;
   align-items: center;
@@ -292,28 +279,168 @@ header {
   font-size: 14px;
 }
 
-.row-progress {
+.row-status {
   margin-left: auto;
-  font-size: 13px;
+  font-size: 12px;
+  opacity: 0.55;
+  white-space: nowrap;
+}
+
+.del-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.del-btn {
+  align-self: flex-end;
+  width: 30px;
+  height: 30px;
+  margin-top: -46px;
+  margin-right: 8px;
+  border-radius: 50%;
+  font-size: 12px;
+  opacity: 0.35;
+}
+
+.del-btn:active {
   opacity: 0.7;
+}
+
+.warn {
+  margin: 0;
+  font-size: 13px;
+  color: #e8a0a0;
+}
+
+.confirm-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.invite-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 18px;
+  background: rgba(205, 214, 232, 0.05);
+  border: 1px solid rgba(255, 240, 200, 0.35);
+  border-radius: 14px;
+}
+
+.invite-code {
+  margin: 0;
+  font-size: 30px;
+  letter-spacing: 8px;
+  color: #ffe9b8;
   font-variant-numeric: tabular-nums;
 }
 
-.row-status {
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  opacity: 0.35;
   font-size: 12px;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(205, 214, 232, 0.25);
+}
+
+.sub-title {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 2px;
   opacity: 0.55;
 }
 
-.manage {
-  display: flex;
-  justify-content: center;
-}
-
-.manage-list {
+.beacon-form {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(205, 214, 232, 0.12);
+  border-radius: 12px;
+}
+
+.seg {
+  display: flex;
+  gap: 8px;
+}
+
+.seg-btn {
+  flex: 1;
+  padding: 8px 0;
+  border: 1px solid rgba(205, 214, 232, 0.2);
+  border-radius: 999px;
+  font-size: 13px;
+  opacity: 0.6;
+}
+
+.seg-btn.on {
+  border-color: rgba(255, 240, 200, 0.55);
+  color: #ffe9b8;
+  opacity: 1;
+}
+
+.radio-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(205, 214, 232, 0.12);
+  border-radius: 12px;
+  background: rgba(205, 214, 232, 0.04);
+  text-align: left;
+  font-size: 13px;
+}
+
+.radio {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid rgba(205, 214, 232, 0.4);
+  flex-shrink: 0;
+}
+
+.radio-row.on {
+  border-color: rgba(255, 240, 200, 0.45);
+}
+
+.radio-row.on .radio {
+  border-color: #ffe9b8;
+  background: radial-gradient(circle, #ffe9b8 40%, transparent 45%);
+}
+
+.code-input-row {
+  display: flex;
+  gap: 10px;
+}
+
+.code-input {
+  width: 100%;
+  background: rgba(205, 214, 232, 0.05);
+  border: 1px solid rgba(205, 214, 232, 0.25);
+  border-radius: 999px;
+  color: inherit;
+  font: inherit;
+  font-size: 16px;
+  letter-spacing: 2px;
+  text-align: center;
+  padding: 10px 14px;
+  text-transform: uppercase;
+}
+
+.code-input::placeholder {
+  color: rgba(205, 214, 232, 0.35);
+  letter-spacing: 1px;
 }
 
 .link-btn {
@@ -322,18 +449,13 @@ header {
   padding: 4px 0;
 }
 
-.link-btn.dim {
-  opacity: 0.3;
-}
-
-.warn {
-  color: #e8a0a0;
-  margin: 0;
-}
-
-.danger {
+.btn.danger {
   border-color: rgba(255, 140, 140, 0.5);
   color: #ffb4b4;
+}
+
+.btn.ghost {
+  opacity: 0.65;
 }
 
 .error {
@@ -341,7 +463,9 @@ header {
   margin: 0;
 }
 
-.ghost {
-  opacity: 0.65;
+.hint {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.55;
 }
 </style>

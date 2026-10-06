@@ -1,2 +1,2 @@
 export { pairBackend } from './supabase'
-export type { IPairBackend, PairEntry, PairGalaxy, PairOrbit, PairStar } from './types'
+export type { IPairBackend, PairEntry, PairGalaxy, PairMember, PairOrbit, PairStar } from './types'

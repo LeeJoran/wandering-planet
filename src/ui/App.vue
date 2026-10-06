@@ -55,12 +55,12 @@ const {
 const beaconBusy = ref(false)
 const beaconError = ref('')
 
-async function onAcceptBeacon() {
+async function onAcceptBeacon(nickname: string) {
   if (!pairState.beaconCode) return
   beaconBusy.value = true
   beaconError.value = ''
   try {
-    const gid = await pairAcceptBeacon(pairState.beaconCode)
+    const gid = await pairAcceptBeacon(pairState.beaconCode, nickname)
     if (!gid) beaconError.value = '这束光已经熄灭（邀请无效或已过期）'
   } catch (e) {
     beaconError.value = e instanceof Error ? e.message : '接受失败'

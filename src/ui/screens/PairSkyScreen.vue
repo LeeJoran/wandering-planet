@@ -11,6 +11,7 @@ import { pairBackend, type PairEntry, type PairGalaxy } from '../../platform/pai
 import ConstellationCatalog from '../components/ConstellationCatalog.vue'
 import Meteors from '../components/Meteors.vue'
 import PairCelebration from '../components/PairCelebration.vue'
+import PairMembersPanel from '../components/PairMembersPanel.vue'
 import PairStarPanel from '../components/PairStarPanel.vue'
 import StarField from '../components/StarField.vue'
 import { formatMs } from '../format'
@@ -20,6 +21,7 @@ const emit = defineEmits<{ back: []; changed: [] }>()
 
 const selectedId = ref<string | null>(null)
 const catalogOpen = ref(false)
+const membersOpen = ref(false)
 const openStarId = ref<string | null>(null)
 const entries = ref<PairEntry[]>([])
 const orbitError = ref('')
@@ -70,11 +72,30 @@ const catalogRows = computed(() =>
   }),
 )
 
+const myUserId = pairBackend.myUserId()
+
 const myActive = computed(() => {
   const o = props.galaxy.orbit
-  if (!o) return false
-  return props.galaxy.iAmA ? o.aActive : o.bActive
+  if (!o || !myUserId) return false
+  return o.activeMembers.includes(myUserId)
 })
+
+const activeCount = computed(() => props.galaxy.orbit?.activeMembers.length ?? 0)
+const othersActiveCount = computed(() => Math.max(0, activeCount.value - (myActive.value ? 1 : 0)))
+const fullHouse = computed(
+  () => props.galaxy.orbit != null && props.galaxy.members.length > 1 && activeCount.value === props.galaxy.members.length,
+)
+
+const CN_NUM = ['一', '二', '三', '四', '五', '六', '七', '八']
+
+// 成员称呼：2 人 = 我/对方；3+ = 我/自取称呼（空则按加入顺序叫成员N）
+function memberLabel(userId: string): string {
+  if (userId === myUserId) return '我'
+  const idx = props.galaxy.members.findIndex((m) => m.userId === userId)
+  if (props.galaxy.members.length <= 2) return '对方'
+  const m = props.galaxy.members[idx]
+  return m?.nickname || `成员${CN_NUM[idx] ?? idx + 1}`
+}
 
 const orbitStar = computed(() => {
   if (!props.galaxy.orbit) return null
@@ -103,11 +124,15 @@ const statusLine = computed(() => {
   const o = props.galaxy.orbit
   if (!o) {
     if (progress.value?.complete) return '这个星座已全部点亮'
-    return props.galaxy.partnerOnline ? '对方在线' : '对方不在'
+    if (props.galaxy.members.length <= 2) return props.galaxy.onlineMembers.length > 0 ? '对方在线' : '对方不在'
+    return props.galaxy.onlineMembers.length > 0
+      ? `${props.galaxy.onlineMembers.length}/${props.galaxy.members.length - 1} 位同行者在线`
+      : '没有同行者在线'
   }
-  if (myActive.value && props.galaxy.partnerInOrbit) return '两人同在 · 同频加成中'
-  if (myActive.value) return '只有你在场 · 共赴仍在继续'
-  return props.galaxy.partnerInOrbit ? '对方正在共赴' : ''
+  if (myActive.value && fullHouse.value) return '全员同在 · 同频加成中'
+  if (myActive.value) return activeCount.value === 1 ? '只有你在场 · 共赴仍在继续' : `${activeCount.value}/${props.galaxy.members.length} 人在场 · 共赴继续`
+  if (othersActiveCount.value === 1) return '对方正在共赴'
+  return othersActiveCount.value > 1 ? `${othersActiveCount.value} 位同行者正在共赴` : ''
 })
 
 const now = ref(Date.now())
@@ -148,7 +173,8 @@ async function reloadEntries() {
     const fresh = list.filter((e) => !seen.has(e.id) && e.author !== pairBackend.myUserId())
     if (fresh.length) {
       const words = fresh.map((e) => (e.type === 'text' ? '一句话' : e.type === 'voice' ? '一段声音' : '一张照片'))
-      showNotice(fresh.length === 1 ? `对方传来了${words[0]}` : `对方传来了 ${fresh.length} 条心意`)
+      const who = fresh.length === 1 ? memberLabel(fresh[0].author) : '同行者'
+      showNotice(fresh.length === 1 ? `${who}传来了${words[0]}` : `同行者们传来了 ${fresh.length} 条心意`)
     }
     saveSeen(list.map((e) => e.id))
     entries.value = list
@@ -194,6 +220,16 @@ async function leaveOrbit() {
     emit('changed')
   } catch (e) {
     orbitError.value = e instanceof Error ? e.message : '结束失败'
+  }
+}
+
+// 黯淡的共赴：进去后可一键复明，旅程继续
+async function resumeGalaxy() {
+  try {
+    await pairBackend.setGalaxyStatus(props.galaxy.id, 'active')
+    emit('changed')
+  } catch (e) {
+    orbitError.value = e instanceof Error ? e.message : '复明失败'
   }
 }
 
@@ -375,10 +411,18 @@ onUnmounted(() => {
 
     <div class="top-bar">
       <button class="c-label" @click="emit('back')">← 返回星空</button>
-      <!-- 双星徽记：两颗互绕的星 = 这段关系的象征 + 对方在线状态 -->
-      <button class="c-label twin" @click="openStarId = null">
+      <!-- 双星徽记：互绕的星 = 这段关系的象征 + 成员面板入口（名单/人数/黯淡复明） -->
+      <button class="c-label twin" @click="membersOpen = true">
         <span class="twin-orbit"><span class="twin-body"></span><span class="twin-body b"></span></span>
-        {{ galaxy.partnerOnline ? '对方在线' : '对方不在' }}
+        {{
+          galaxy.members.length <= 2
+            ? galaxy.onlineMembers.length > 0
+              ? '对方在线'
+              : '对方不在'
+            : galaxy.onlineMembers.length > 0
+              ? `${galaxy.onlineMembers.length}/${galaxy.members.length - 1} 位同行在线`
+              : '成员'
+        }}
       </button>
     </div>
 
@@ -419,16 +463,24 @@ onUnmounted(() => {
     <p v-if="orbitError" class="hint error">{{ orbitError }}</p>
 
     <div v-if="galaxy.status === 'active'" class="ctrls">
-      <template v-if="!myActive && !galaxy.partnerInOrbit">
+      <template v-if="!myActive && othersActiveCount === 0">
         <button v-if="!progress?.complete" class="btn" @click="startOrbit">开始共赴</button>
         <p v-else class="hint">这个星座已全部点亮，换个星座吧</p>
       </template>
-      <template v-else-if="!myActive && galaxy.partnerInOrbit">
-        <button class="btn" @click="startOrbit">加入对方的共赴</button>
+      <template v-else-if="!myActive && othersActiveCount > 0">
+        <button class="btn" @click="startOrbit">
+          {{ galaxy.members.length <= 2 ? '加入对方的共赴' : '加入同行者的共赴' }}
+        </button>
       </template>
       <template v-else>
         <button class="btn" @click="leaveOrbit">结束共赴</button>
       </template>
+    </div>
+
+    <!-- 黯淡的共赴：进去即可继续点亮，旅程不是一次性的 -->
+    <div v-else class="ctrls">
+      <button class="btn" @click="resumeGalaxy">继续点亮这段共赴</button>
+      <p class="hint">这段共赴黯淡了，但星星还在</p>
     </div>
 
     <ConstellationCatalog
@@ -448,12 +500,25 @@ onUnmounted(() => {
       galaxy-name="共赴星系"
       :entries="entries"
       :my-user-id="pairBackend.myUserId()"
+      :members="galaxy.members"
       :can-add="galaxy.status === 'active'"
       @add="addEntry"
       @close="openStarId = null"
     />
 
-    <PairCelebration v-if="celebrating" :constellation="celebrating" @close="celebrating = null" />
+    <PairMembersPanel
+      v-if="membersOpen"
+      :galaxy="galaxy"
+      @changed="emit('changed')"
+      @close="membersOpen = false"
+    />
+
+    <PairCelebration
+      v-if="celebrating"
+      :constellation="celebrating"
+      :who="galaxy.members.length <= 2 ? '双方' : '大家'"
+      @close="celebrating = null"
+    />
   </div>
 </template>
 
